@@ -12,6 +12,7 @@ var ai_faction: String = "coro"
 
 func _ready():
 	engine = GameEngine.new()
+	add_child(engine)
 	_load_cards()
 	_start_game()
 	_render_game()

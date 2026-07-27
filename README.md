@@ -33,3 +33,4 @@ Lógica completa de:
 - 127 cartas com habilidades
 
 Tudo testado e funcional em JavaScript — aqui simplesmente traduzido para GDScript.
+# Versão Godot atualizada

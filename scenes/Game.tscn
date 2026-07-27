@@ -1,0 +1,73 @@
+[gd_scene load_steps=3 format=3 uid="uid://d1kbdm2cy4xdpxy"]
+
+[ext_resource type="Script" path="res://scripts/GameEngine.gd"]
+[ext_resource type="Script" path="res://scripts/UIController.gd"]
+
+[node name="Game" type="Control"]
+layout_mode = 3
+anchors_left = 0.0
+anchors_top = 0.0
+anchors_right = 1.0
+anchors_bottom = 1.0
+script = ExtResource("UIController")
+
+[node name="Engine" type="Node" parent="."]
+script = ExtResource("GameEngine")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_left = 0.0
+anchors_top = 0.0
+anchors_right = 1.0
+anchors_bottom = 1.0
+color = Color(0.1, 0.1, 0.1, 1)
+
+[node name="Board" type="TextureRect" parent="."]
+layout_mode = 1
+anchors_left = 0.5
+anchors_top = 0.1
+anchors_right = 0.5
+anchors_bottom = 0.7
+offset_left = -560.0
+offset_top = 0.0
+offset_right = 560.0
+offset_bottom = 0.0
+expand_mode = 1
+stretch_mode = 0
+
+[node name="HUD" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_left = 0.0
+anchors_top = 0.0
+anchors_right = 1.0
+anchors_bottom = 0.1
+
+[node name="RoundLabel" type="Label" parent="HUD"]
+layout_mode = 2
+text = "Turno 1 / 12"
+
+[node name="TurnIndicator" type="Label" parent="HUD"]
+layout_mode = 2
+text = "A tua vez"
+
+[node name="TacticoHand" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_left = 0.1
+anchors_top = 0.65
+anchors_right = 0.9
+anchors_bottom = 0.8
+
+[node name="Label" type="Label" parent="TacticoHand"]
+layout_mode = 2
+text = "Cartas Táticas"
+
+[node name="CardContainer" type="HBoxContainer" parent="TacticoHand"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Hand" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_left = 0.1
+anchors_top = 0.8
+anchors_right = 0.9
+anchors_bottom = 1.0

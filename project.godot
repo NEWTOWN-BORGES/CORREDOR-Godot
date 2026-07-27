@@ -1,0 +1,22 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that change here are too many and would
+; make this file unreadable.
+
+config_version=5
+
+[application]
+
+config/name="CORREDOR - TCG"
+config/description="1v1 Tower Siege Card Game - Godot Version"
+run/main_scene="res://scenes/Game.tscn"
+config/features=PackedStringArray("4.3", "mobile")
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=800
+
+[physics]
+
+common/physics_ticks_per_second=120

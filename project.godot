@@ -1,16 +1,23 @@
 ; Engine configuration file.
 ; It's best edited using the editor UI and not directly,
-; since the parameters that change here are too many and would
-; make this file unreadable.
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
+
+[animation]
+
+compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 [application]
 
 config/name="CORREDOR - TCG"
 config/description="1v1 Tower Siege Card Game - Godot Version"
 run/main_scene="res://scenes/Game.tscn"
-config/features=PackedStringArray("4.3", "mobile")
+config/features=PackedStringArray("4.7", "Mobile")
 
 [display]
 
@@ -20,3 +27,7 @@ window/size/viewport_height=800
 [physics]
 
 common/physics_ticks_per_second=120
+
+[rendering]
+
+renderer/rendering_method="mobile"

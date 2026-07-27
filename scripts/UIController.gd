@@ -2,122 +2,106 @@ extends Control
 
 var engine: GameEngine
 var cartas: Dictionary = {}
-var player_faction: String = ""
-var ai_faction: String = ""
+var player_faction: String = "reinos"
+var ai_faction: String = "coro"
+
+@onready var tatico_container = $VBoxContainer/TacticoHand/CardContainer
+@onready var hand_container = $VBoxContainer/Hand/HandContainer
+@onready var hud_label = $VBoxContainer/HUD
+@onready var pass_button = $VBoxContainer/ButtonPass
 
 func _ready():
-	engine = $".."  # GameEngine node
+	engine = GameEngine.new()
 	_load_cards()
-	_setup_ui()
 	_start_game()
+	_render_game()
+	pass_button.pressed.connect(_on_pass)
 
 func _load_cards():
 	var json_str = FileAccess.get_file_as_string("res://resources/cartas.json")
 	cartas = JSON.parse_string(json_str)
-	print("Carregadas: %d unidades, %d apoios, %d táticos" % [
-		cartas.get("unidades", []).size(),
-		cartas.get("apoios", []).size(),
+	print("Carregadas: %d cartas" % [
+		cartas.get("unidades", []).size() +
+		cartas.get("apoios", []).size() +
 		cartas.get("taticos", []).size()
 	])
 
-func _setup_ui():
-	# Mostrar menu de seleção de facção
-	_show_faction_menu()
-
-func _show_faction_menu():
-	var factions = {}
-	for unit in cartas.get("unidades", []):
-		var faccao = unit.get("faccao_slug", "")
-		if faccao and not faccao in factions:
-			factions[faccao] = unit.get("faccao", "")
-
-	print("Facções disponíveis: ", factions)
-	# Por enquanto, seleciona aleatoriamente
-	var faction_keys = factions.keys()
-	player_faction = faction_keys[randi() % faction_keys.size()]
-	ai_faction = faction_keys[randi() % faction_keys.size()]
-
 func _start_game():
-	print("Jogador: %s vs IA: %s" % [player_faction, ai_faction])
-
 	var player_deck = _build_faction_deck(player_faction)
 	var ai_deck = _build_faction_deck(ai_faction)
-
 	engine.init_game(player_deck, ai_deck)
-	_render_game()
 
 func _build_faction_deck(faction_slug: String) -> Array:
-	var apoios = cartas.get("apoios", [])
-	var unidades = cartas.get("unidades", [])
-	var taticos = cartas.get("taticos", [])
-
-	var faction_apoios = apoios.filter(func(c): return c.get("faccao_slug") == faction_slug)
-	var faction_unidades = unidades.filter(func(c): return c.get("faccao_slug") == faction_slug)
-	var faction_taticos = taticos.filter(func(c): return c.get("faccao_slug") == faction_slug)
-
-	# Montar deck: apoios + unidades + táticos
-	var deck: Array = []
-	deck.append_array(faction_apoios)
-
-	var remaining = maxi(0, 20 - faction_apoios.size())
-	faction_unidades.sort_custom(func(a, b): return a.get("custo", 0) < b.get("custo", 0))
-	deck.append_array(faction_unidades.slice(0, remaining))
-
-	deck.append_array(faction_taticos)
-
-	return deck
+	var all_cards = cartas.get("unidades", []) + cartas.get("apoios", []) + cartas.get("taticos", [])
+	var faction_cards = []
+	for card in all_cards:
+		if card.get("faccao_slug") == faction_slug:
+			faction_cards.append(card)
+	return faction_cards.slice(0, 20)
 
 func _render_game():
-	_render_tatico_hand()
-	_render_hand()
-	_update_hud()
-
-func _render_tatico_hand():
-	var container = $"../TacticoHand/CardContainer"
 	# Limpar
-	for child in container.get_children():
+	for child in tatico_container.get_children():
+		child.queue_free()
+	for child in hand_container.get_children():
 		child.queue_free()
 
 	var p = engine.players["player"]
-	for card in p.get("tacticoHand", []):
-		var card_ui = _create_card_ui(card)
-		container.add_child(card_ui)
 
-func _render_hand():
-	var container = $"../Hand"
-	# Limpar
-	for child in container.get_children():
-		child.queue_free()
+	# Render Tatico Hand
+	for i in range(p.get("tacticoHand", []).size()):
+		var card = p["tacticoHand"][i]
+		var btn = Button.new()
+		btn.text = card.get("nome", "?")
+		btn.custom_minimum_size = Vector2(100, 100)
+		btn.pressed.connect(func(): _play_tatico(i))
+		tatico_container.add_child(btn)
 
+	# Render Military Hand
+	for i in range(p.get("hand", []).size()):
+		var card = p["hand"][i]
+		var btn = Button.new()
+		btn.text = card.get("nome", "?")
+		btn.custom_minimum_size = Vector2(100, 120)
+		btn.pressed.connect(func(): _play_unit(i))
+		hand_container.add_child(btn)
+
+	# Update HUD
+	hud_label.text = "CORREDOR — Godot\nTurno %d / 12 | %s\nUnidades: %d/3" % [
+		engine.round,
+		"A tua vez" if engine.activePlayer == "player" else "Vez do adversário",
+		engine.players["player"].get("unitPlaysThisRound", 0)
+	]
+
+func _play_tatico(idx: int):
+	var result = engine.play_tatico_card("player", idx, {})
+	if result.get("ok"):
+		print("Jogou: %s" % result.get("card", {}).get("nome", "?"))
+		_render_game()
+	else:
+		print("Erro: %s" % result.get("error", "?"))
+
+func _play_unit(idx: int):
+	# Simplificado: coloca sempre na primeira slot livre
 	var p = engine.players["player"]
-	for card in p.get("hand", []):
-		var card_ui = _create_card_ui(card)
-		container.add_child(card_ui)
+	var card = p["hand"][idx]
 
-func _create_card_ui(card: Dictionary) -> Control:
-	var vbox = VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(100, 140)
+	var slot_type = "frente"
+	var slot_idx = 0
+	for i in range(6):
+		if p["front"][i] == null:
+			slot_idx = i
+			break
 
-	# Imagem
-	var img = TextureRect.new()
-	var card_name = card.get("imagem", "")
-	if card_name:
-		var tipo = card.get("tipo_tatico", "")
-		var path = "res://assets/taticos-3d/%s" % card_name if tipo else "res://assets/cartas-3d/%s" % card_name
-		img.texture = load(path)
-		img.expand_mode = TextureRect.EXPAND_FIT_WIDTH_IGNORED
-		img.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
+	var result = engine.play_unit("player", idx, slot_type, slot_idx)
+	if result.get("ok"):
+		print("Jogou unidade: %s" % result.get("card", {}).get("nome", "?"))
+		_render_game()
+	else:
+		print("Erro: %s" % result.get("error", "?"))
 
-	vbox.add_child(img)
-
-	# Nome
-	var label = Label.new()
-	label.text = card.get("nome", "?")
-	label.custom_minimum_size = Vector2(100, 40)
-	vbox.add_child(label)
-
-	return vbox
-
-func _update_hud():
-	$"../HUD/RoundLabel".text = "Turno %d / %d" % [engine.round, engine.ROUND_LIMIT]
-	$"../HUD/TurnIndicator".text = "A tua vez" if engine.activePlayer == "player" else "Vez do adversário"
+func _on_pass():
+	var result = engine.pass_turn("player")
+	if result.get("ok"):
+		print("Passou")
+		_render_game()

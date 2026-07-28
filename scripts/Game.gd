@@ -60,6 +60,7 @@ var players: Dictionary = {}
 
 var _uid_counter: int = 1
 var _log_callback: Callable = Callable()
+var _ability_dispatcher: AbilityDispatcher = null
 
 func _next_uid() -> String:
 	var uid = "c" + str(_uid_counter)
@@ -79,6 +80,8 @@ func _shuffle(arr: Array) -> Array:
 
 func init_game(player_deck: Array, ai_deck: Array, log_callback: Callable = Callable()) -> void:
 	_log_callback = log_callback
+	if !_ability_dispatcher:
+		_ability_dispatcher = AbilityDispatcher.new()
 
 	# Separar decks militares e táticos
 	var player_mil = player_deck.filter(func(c): return !c.has("tipo_tatico") or c["tipo_tatico"] == "")
@@ -737,12 +740,12 @@ func deal_damage(target, amount: int, source = null, opts: Dictionary = {}) -> v
 			destroy_card(target, source)
 
 func _run_trigger(card, trigger: String) -> void:
-	# TODO: Run ability trigger
-	pass
+	if _ability_dispatcher:
+		_ability_dispatcher.run_trigger(self, card, trigger)
 
 func _run_on_kill(card) -> void:
-	# TODO: Run ability trigger
-	pass
+	if _ability_dispatcher:
+		_ability_dispatcher.run_trigger(self, card, "onKill")
 
 func _emit_ally_death(dead_card) -> void:
 	for c in allies(dead_card["ownerId"]):

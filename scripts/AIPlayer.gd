@@ -8,8 +8,19 @@ class_name AIPlayer
 #   - depois a melhor unidade da mão, avaliada por ataque×2 + vida + escudo
 #   - prefere as colunas do centro para fora
 #   - se não tiver nada a fazer, passa
+#
+# Acrescento ao web: as cartas táticas. O ai-player.js nunca lhes toca,
+# porque o sistema tático foi acrescentado depois. Aqui a IA usa-as, mas só
+# quando valem alguma coisa — nunca as gasta a esmo.
+
+const MAX_TATICAS_POR_TURNO := 2
 
 var owner_id: String = "ai"
+
+# Jogar uma tática repõe logo a mão, por isso sem um travão a IA podia
+# esvaziar o baralho tático inteiro num só turno.
+var _taticas_neste_turno: int = 0
+var _turno_contado: int = -1
 
 func _init(a_owner_id: String = "ai") -> void:
 	owner_id = a_owner_id
@@ -98,7 +109,8 @@ func pick_apoio_target(engine: Game, def: Dictionary, apoio_id: String) -> Dicti
 func step(engine: Game) -> bool:
 	if engine.phase != "placement" or engine.active_player != owner_id:
 		return false
-	if not _try_play_apoio(engine) and not _try_play_unit(engine):
+	_reset_turn_counter(engine)
+	if not _try_play_apoio(engine) and not _try_play_tatico(engine) and not _try_play_unit(engine):
 		engine.pass_turn(owner_id)
 	return true
 
@@ -107,8 +119,20 @@ func act(engine: Game) -> void:
 	var guard := 0
 	while engine.phase == "placement" and engine.active_player == owner_id and guard < 30:
 		guard += 1
-		if not _try_play_apoio(engine) and not _try_play_unit(engine):
+		_reset_turn_counter(engine)
+		if not _try_play_apoio(engine) and not _try_play_tatico(engine) and not _try_play_unit(engine):
 			engine.pass_turn(owner_id)
+
+func _reset_turn_counter(engine: Game) -> void:
+	if engine.current_round != _turno_contado:
+		_turno_contado = engine.current_round
+		_taticas_neste_turno = 0
+
+# Esquece o que foi jogado neste turno. Em jogo isto acontece sozinho quando
+# o turno muda; os testes montam cenários no mesmo turno e precisam de pedir.
+func reset_turn_state() -> void:
+	_taticas_neste_turno = 0
+	_turno_contado = -1
 
 func _try_play_apoio(engine: Game) -> bool:
 	var p: Dictionary = engine.players[owner_id]
@@ -141,6 +165,134 @@ func _try_play_apoio(engine: Game) -> bool:
 			return false
 
 	return engine.play_apoio(owner_id, idx, spec).get("ok", false)
+
+# ---------------------------------------------------------------- táticas
+
+# Percorre a mão tática e joga a primeira que valha a pena. Devolve false se
+# nenhuma servir agora — guardá-las é melhor do que desperdiçá-las.
+func _try_play_tatico(engine: Game) -> bool:
+	if _taticas_neste_turno >= MAX_TATICAS_POR_TURNO:
+		return false
+
+	var p: Dictionary = engine.players[owner_id]
+	var mao: Array = p["tacticoHand"]
+
+	for i in range(mao.size()):
+		var carta: Dictionary = mao[i]
+		var plano := plan_tatico(engine, carta)
+		if plano.is_empty():
+			continue
+		var spec := {}
+		if plano.has("target"):
+			spec["targetCard"] = plano["target"]
+		if engine.play_tatico_card(owner_id, i, spec).get("ok", false):
+			_taticas_neste_turno += 1
+			return true
+	return false
+
+# Decide se uma tática vale a pena agora e em quem. Dicionário vazio = não joga.
+func plan_tatico(engine: Game, carta: Dictionary) -> Dictionary:
+	match str(carta.get("tipo_tatico", "")):
+		"Equipamento":
+			return _plan_equipamento(engine, carta)
+		"Magia":
+			return _plan_magia(engine, carta)
+		"Consumível":
+			return _plan_consumivel(engine, carta)
+		"Bênção":
+			return _plan_bencao(engine, carta)
+		_:
+			# Construção e Clima ainda não têm efeito nenhum no motor — no web
+			# também não tinham. Não vale a pena gastar jogadas com elas.
+			return {}
+
+# Equipamento vai para quem mais lucra: bónus de ataque no que bate mais
+# forte, bónus de vida no que está mais perto de cair.
+func _plan_equipamento(engine: Game, carta: Dictionary) -> Dictionary:
+	var bonus_atk := int(carta.get("bonus_ataque", 0))
+	var bonus_vida := int(carta.get("bonus_vida", 0))
+	if bonus_atk <= 0 and bonus_vida <= 0:
+		return {}
+
+	var candidatos: Array = engine.allies(owner_id)
+	if candidatos.is_empty():
+		return {}
+
+	var melhor = null
+	var melhor_valor := -1.0
+	for c in candidatos:
+		var valor := 0.0
+		if bonus_atk > 0:
+			# Quem já bate forte tira mais partido de bater ainda mais
+			valor += float(bonus_atk) * (1.0 + float(engine.get_effective_ataque(c)) * 0.25)
+		if bonus_vida > 0:
+			# E quem está ferido tira mais partido de aguentar mais
+			var falta: int = max(0, int(c["vidaMaxima"]) - int(c["vidaAtual"]))
+			valor += float(bonus_vida) * (1.0 + float(falta) * 0.5)
+		if valor > melhor_valor:
+			melhor_valor = valor
+			melhor = c
+
+	return {"target": melhor} if melhor != null else {}
+
+# Magia procura primeiro um remate; se não houver, bate no mais perigoso.
+func _plan_magia(engine: Game, carta: Dictionary) -> Dictionary:
+	var dano := int(carta.get("dano", 0))
+	if dano <= 0:
+		return {}
+
+	var foes: Array = engine.enemies(owner_id)
+	if foes.is_empty():
+		return {}
+
+	var remate = null
+	var remate_ataque := -1
+	var perigo = null
+	for c in foes:
+		var aguenta := int(c["vidaAtual"]) + int(c["escudoAtual"])
+		var ataque := engine.get_effective_ataque(c)
+		if dano >= aguenta and ataque > remate_ataque:
+			remate = c
+			remate_ataque = ataque
+		if perigo == null or ataque > engine.get_effective_ataque(perigo):
+			perigo = c
+
+	if remate != null:
+		return {"target": remate}
+	return {"target": perigo} if perigo != null else {}
+
+# Consumível só sai se houver mesmo vida para repor — curar 2 numa carta a
+# quem falta 1 é deitar a carta fora.
+func _plan_consumivel(engine: Game, carta: Dictionary) -> Dictionary:
+	var cura := int(carta.get("cura", 0))
+	if cura <= 0:
+		return {}
+
+	var melhor = null
+	var maior_falta := 0
+	for c in engine.allies(owner_id):
+		if c.get("cannotBeHealed", false):
+			continue
+		var falta: int = int(c["vidaMaxima"]) - int(c["vidaAtual"])
+		if falta > maior_falta:
+			maior_falta = falta
+			melhor = c
+
+	# Exige que se aproveite pelo menos metade da cura
+	if melhor == null or maior_falta * 2 < cura:
+		return {}
+	return {"target": melhor}
+
+# Bênção dá +2 de Ataque só até ao fim do turno, por isso só serve numa
+# carta que vá mesmo atacar já.
+func _plan_bencao(engine: Game, _carta: Dictionary) -> Dictionary:
+	var melhor = null
+	for c in engine.allies(owner_id):
+		if not engine._can_act(c):
+			continue
+		if melhor == null or engine.get_effective_ataque(c) > engine.get_effective_ataque(melhor):
+			melhor = c
+	return {"target": melhor} if melhor != null else {}
 
 func _try_play_unit(engine: Game) -> bool:
 	var p: Dictionary = engine.players[owner_id]

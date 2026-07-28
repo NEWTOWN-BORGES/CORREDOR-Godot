@@ -769,24 +769,36 @@ func play_tatico_card(owner_id: String, tactico_hand_index: int, target_spec: Di
 	p["tacticoHand"].remove_at(tactico_hand_index)
 	_refill_tactico(owner_id)
 
+	# Magia, Consumível e Bênção aceitam alvo. Sem alvo, caem no primeiro da
+	# lista — que era o único comportamento no web.
+	var escolhido = target_spec.get("targetCard")
+
 	match tipo:
 		"Magia":
 			var dano := int(card_def.get("dano", 0))
 			if dano > 0:
-				var foes := enemies(owner_id)
-				if not foes.is_empty():
-					deal_damage(foes[0], dano, null)
-					_log("%s lançaste %s (%d de dano)." % [_side_name(owner_id), card_def.get("nome", ""), dano])
+				var alvo = escolhido
+				if alvo == null:
+					var foes := enemies(owner_id)
+					alvo = foes[0] if not foes.is_empty() else null
+				if alvo != null and alvo["ownerId"] != owner_id:
+					deal_damage(alvo, dano, null)
+					_log("%s lançaste %s em %s (%d de dano)." % [
+						_side_name(owner_id), card_def.get("nome", ""), alvo["nome"], dano])
 			p["tacticoGraveyard"].append(card_def)
 		"Consumível":
 			var cura := int(card_def.get("cura", 0))
 			if cura > 0:
-				var friends := allies(owner_id)
-				if not friends.is_empty():
-					var target: Dictionary = friends[0]
-					var old_hp := int(target["vidaAtual"])
-					heal(target, cura)
-					_log("%s usaste %s (+%d HP)." % [_side_name(owner_id), card_def.get("nome", ""), int(target["vidaAtual"]) - old_hp])
+				var alvo = escolhido
+				if alvo == null:
+					var friends := allies(owner_id)
+					alvo = friends[0] if not friends.is_empty() else null
+				if alvo != null and alvo["ownerId"] == owner_id:
+					var old_hp := int(alvo["vidaAtual"])
+					heal(alvo, cura)
+					_log("%s usaste %s em %s (+%d de Vida)." % [
+						_side_name(owner_id), card_def.get("nome", ""), alvo["nome"],
+						int(alvo["vidaAtual"]) - old_hp])
 			p["tacticoGraveyard"].append(card_def)
 		"Construção":
 			var construct := card_def.duplicate(true)
@@ -807,10 +819,14 @@ func play_tatico_card(owner_id: String, tactico_hand_index: int, target_spec: Di
 			})
 			_log("%s ativaste o Clima %s." % [_side_name(owner_id), card_def.get("nome", "")])
 		"Bênção":
-			var friends_b := allies(owner_id)
-			if not friends_b.is_empty():
-				add_atk_mod(friends_b[0], 2)
-				_log("%s invocaste %s (+2 de Ataque)." % [_side_name(owner_id), card_def.get("nome", "")])
+			var alvo = escolhido
+			if alvo == null:
+				var friends_b := allies(owner_id)
+				alvo = friends_b[0] if not friends_b.is_empty() else null
+			if alvo != null and alvo["ownerId"] == owner_id:
+				add_atk_mod(alvo, 2)
+				_log("%s invocaste %s em %s (+2 de Ataque)." % [
+					_side_name(owner_id), card_def.get("nome", ""), alvo["nome"]])
 			p["tacticoGraveyard"].append(card_def)
 		_:
 			_log("%s jogaste %s." % [_side_name(owner_id), card_def.get("nome", "")])

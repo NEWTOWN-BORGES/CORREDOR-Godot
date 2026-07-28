@@ -27,6 +27,10 @@ func _run_tests() -> void:
 	# Desde a Fase 7 as jogadas passam por _run_action, que é assíncrono.
 	# Sem isto ficavam acções pendentes a resumir a meio do teste seguinte.
 	game.set_animation_speed(0.0)
+	# Sem adversário automático: estes testes verificam onde a carta ficou, e
+	# a IA a jogar logo a seguir resolvia o combate e matava-a antes da
+	# verificação — falhava ao calhar, conforme as cartas que lhe saíam.
+	game.ai = null
 	engine = game.engine
 	board = game.get_node("VBoxContainer/BoardArea/Board")
 	await tree.process_frame

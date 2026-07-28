@@ -110,7 +110,7 @@ func step(engine: Game) -> bool:
 	if engine.phase != "placement" or engine.active_player != owner_id:
 		return false
 	_reset_turn_counter(engine)
-	if not _try_play_apoio(engine) and not _try_play_tatico(engine) and not _try_play_unit(engine):
+	if not _try_play_hand_card(engine) and not _try_place_reinforcement(engine):
 		engine.pass_turn(owner_id)
 	return true
 
@@ -120,7 +120,7 @@ func act(engine: Game) -> void:
 	while engine.phase == "placement" and engine.active_player == owner_id and guard < 30:
 		guard += 1
 		_reset_turn_counter(engine)
-		if not _try_play_apoio(engine) and not _try_play_tatico(engine) and not _try_play_unit(engine):
+		if not _try_play_hand_card(engine) and not _try_place_reinforcement(engine):
 			engine.pass_turn(owner_id)
 
 func _reset_turn_counter(engine: Game) -> void:
@@ -134,61 +134,65 @@ func reset_turn_state() -> void:
 	_taticas_neste_turno = 0
 	_turno_contado = -1
 
-func _try_play_apoio(engine: Game) -> bool:
+# A mão é uma só, por isso há uma só varredura: percorre-a e joga a primeira
+# carta que valha a pena, seja Apoio ou Tática.
+func _try_play_hand_card(engine: Game) -> bool:
 	var p: Dictionary = engine.players[owner_id]
-	if p["apoiosBlocked"]:
-		return false
-
-	var idx := -1
-	for i in range((p["hand"] as Array).size()):
-		if p["hand"][i].get("isApoio", false):
-			idx = i
-			break
-	if idx < 0:
-		return false
-
-	var card_def: Dictionary = p["hand"][idx]
-	var def := engine.abilities.get_apoio_ability(str(card_def.get("id", "")))
-	if def.is_empty():
-		return false
-
-	if def.get("needsTarget") == null:
-		return engine.play_apoio(owner_id, idx, {}).get("ok", false)
-
-	var spec := pick_apoio_target(engine, def, str(card_def.get("id", "")))
-	if spec.is_empty():
-		return false
-	if def.get("needsTarget") != "allyPair" and spec.get("target") == null:
-		return false
-	if def.has("requireFn") and spec.get("target") != null:
-		if not def["requireFn"].call(engine, owner_id, spec["target"]):
-			return false
-
-	return engine.play_apoio(owner_id, idx, spec).get("ok", false)
-
-# ---------------------------------------------------------------- táticas
-
-# Percorre a mão tática e joga a primeira que valha a pena. Devolve false se
-# nenhuma servir agora — guardá-las é melhor do que desperdiçá-las.
-func _try_play_tatico(engine: Game) -> bool:
-	if _taticas_neste_turno >= MAX_TATICAS_POR_TURNO:
-		return false
-
-	var p: Dictionary = engine.players[owner_id]
-	var mao: Array = p["tacticoHand"]
+	var mao: Array = p["hand"]
 
 	for i in range(mao.size()):
 		var carta: Dictionary = mao[i]
+
+		if carta.get("isApoio", false):
+			if p["apoiosBlocked"]:
+				continue
+			var spec := _plan_apoio(engine, carta)
+			if spec.is_empty() and not _apoio_dispensa_alvo(engine, carta):
+				continue
+			if engine.play_hand_card(owner_id, i, spec).get("ok", false):
+				return true
+			continue
+
+		# Táticas têm travão próprio: jogar uma repõe logo a mão, e sem
+		# travão a IA esvaziava o baralho inteiro num turno.
+		if _taticas_neste_turno >= MAX_TATICAS_POR_TURNO:
+			continue
 		var plano := plan_tatico(engine, carta)
 		if plano.is_empty():
 			continue
-		var spec := {}
+		var tspec := {}
 		if plano.has("target"):
-			spec["targetCard"] = plano["target"]
-		if engine.play_tatico_card(owner_id, i, spec).get("ok", false):
+			tspec["targetCard"] = plano["target"]
+		if engine.play_hand_card(owner_id, i, tspec).get("ok", false):
 			_taticas_neste_turno += 1
 			return true
+
 	return false
+
+func _apoio_dispensa_alvo(engine: Game, carta: Dictionary) -> bool:
+	var def := engine.abilities.get_apoio_ability(str(carta.get("id", "")))
+	return not def.is_empty() and def.get("needsTarget") == null
+
+# Escolhe o alvo de um Apoio, ou devolve vazio se nenhum servir.
+func _plan_apoio(engine: Game, carta: Dictionary) -> Dictionary:
+	var apoio_id := str(carta.get("id", ""))
+	var def := engine.abilities.get_apoio_ability(apoio_id)
+	if def.is_empty():
+		return {}
+	if def.get("needsTarget") == null:
+		return {}
+
+	var spec := pick_apoio_target(engine, def, apoio_id)
+	if spec.is_empty():
+		return {}
+	if def.get("needsTarget") != "allyPair" and spec.get("target") == null:
+		return {}
+	if def.has("requireFn") and spec.get("target") != null:
+		if not def["requireFn"].call(engine, owner_id, spec["target"]):
+			return {}
+	return spec
+
+# ---------------------------------------------------------------- táticas
 
 # Decide se uma tática vale a pena agora e em quem. Dicionário vazio = não joga.
 func plan_tatico(engine: Game, carta: Dictionary) -> Dictionary:
@@ -294,17 +298,38 @@ func _plan_bencao(engine: Game, _carta: Dictionary) -> Dictionary:
 			melhor = c
 	return {"target": melhor} if melhor != null else {}
 
-func _try_play_unit(engine: Game) -> bool:
+# ---------------------------------------------------------------- reforços
+
+# A decisão nova do sistema: gastar um reforço agora ou guardá-lo.
+#
+# Gasta se houver coluna da frente aberta — uma coluna vazia deixa a Torre
+# levar cerco directo, e isso custa mais do que qualquer carta guardada.
+# Gasta também se a reserva estiver cheia, senão o reforço do próximo turno
+# perde-se. Fora disso guarda, para ter resposta quando algo morrer.
+func should_spend_reinforcement(engine: Game) -> bool:
+	if engine.reinforcements_full(owner_id):
+		return true
+	return _has_open_front_lane(engine)
+
+func _has_open_front_lane(engine: Game) -> bool:
+	var frente: Array = engine.players[owner_id]["front"]
+	for lane in range(Game.FRONT_LANES):
+		if frente[lane] == null:
+			return true
+	return false
+
+func _try_place_reinforcement(engine: Game) -> bool:
 	var p: Dictionary = engine.players[owner_id]
-	if not p["freeNextUnit"] and int(p["unitPlaysThisRound"]) >= engine.get_unit_cap(owner_id):
+	var reserva: Array = p["reinforcements"]
+	if reserva.is_empty():
+		return false
+	if not should_spend_reinforcement(engine):
 		return false
 
-	# Só as que têm casa livre, pela melhor pontuação
+	# Entre os que têm casa livre, o mais forte
 	var candidatos := []
-	for i in range((p["hand"] as Array).size()):
-		var c: Dictionary = p["hand"][i]
-		if c.get("isApoio", false):
-			continue
+	for i in range(reserva.size()):
+		var c: Dictionary = reserva[i]
 		if find_open_slot(engine, c).is_empty():
 			continue
 		candidatos.append({"index": i, "card": c, "score": score_unit(c)})
@@ -318,4 +343,6 @@ func _try_play_unit(engine: Game) -> bool:
 	if slot.is_empty():
 		return false
 
-	return engine.play_unit(owner_id, int(melhor["index"]), str(slot["slotType"]), int(slot["slotIndex"])).get("ok", false)
+	return engine.place_reinforcement(
+		owner_id, int(melhor["index"]), str(slot["slotType"]), int(slot["slotIndex"])
+	).get("ok", false)

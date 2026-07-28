@@ -32,7 +32,7 @@ func _run_tests() -> void:
 	# verificação — falhava ao calhar, conforme as cartas que lhe saíam.
 	game.ai = null
 	engine = game.engine
-	board = game.get_node("VBoxContainer/BoardArea/Board")
+	board = game.get_node("VBoxContainer/Middle/BoardArea/Board")
 	await tree.process_frame
 
 	test_zoom_opens_and_closes()
@@ -88,6 +88,10 @@ func apoio(id: String, nome: String) -> Dictionary:
 func set_hand(cards: Array) -> void:
 	engine.players["player"]["hand"] = cards.duplicate()
 
+# As unidades já não vêm da mão — vêm da reserva de reforços.
+func set_reinforcements(cards: Array) -> void:
+	engine.players["player"]["reinforcements"] = cards.duplicate()
+
 func place(owner_id: String, card_def: Dictionary, slot_type: String, lane: int) -> Dictionary:
 	var card: Dictionary = engine._instantiate(card_def, owner_id)
 	card["slotType"] = slot_type
@@ -114,7 +118,7 @@ func reset_board() -> void:
 		p["apoiosBlocked"] = false
 		p["apoiosBlockedNextRound"] = false
 		p["lastApoio"] = null
-		p["unitPlaysThisRound"] = 0
+		p["reinforcements"] = []
 		p["donePlacing"] = false
 	engine.phase = "placement"
 	engine.active_player = "player"
@@ -126,48 +130,49 @@ func reset_board() -> void:
 func test_zoom_opens_and_closes() -> void:
 	print("Ampliação abre e fecha")
 	reset_board()
-	set_hand([unit("Recruta", "GUERREIRO")])
+	set_reinforcements([unit("Recruta", "GUERREIRO")])
 	game._render_hands()
 
 	check(not game.zoom_overlay.visible, "começa fechada")
-	game._on_hand_card_click(0)
+	game._on_reinforcement_click(0)
 	check(game.zoom_overlay.visible, "clicar na carta abre")
 	check(game.zoom_card.texture != null, "mostra a arte da carta")
 	check(game.zoom_actions.visible, "mostra os botões")
 
 	game._close_zoom()
 	check(not game.zoom_overlay.visible, "Cancelar fecha")
-	check_eq(game._selected_hand_index, -1, "fechar sem jogar não escolhe nada")
+	check_eq(game._selected_reinforcement, -1, "fechar sem jogar não escolhe nada")
 
 func test_play_button_hidden_when_unplayable() -> void:
 	print("Botão Jogar só aparece se der para jogar")
 	reset_board()
-	set_hand([unit("Recruta", "GUERREIRO")])
+	# Equipamento sem unidade amiga em campo não tem onde ir
+	var espada := {"id": "TAC-9", "nome": "Espada", "tipo_tatico": "Equipamento",
+		"bonus_ataque": 2, "isApoio": false, "imagem": "tatico-001.png"}
+	set_hand([espada])
 	game._render_hands()
 
 	game._on_hand_card_click(0)
-	check(game.zoom_play.visible, "com casas livres, deixa jogar")
+	check(not game.zoom_play.visible, "sem unidade para equipar, não deixa jogar")
+	check(game.zoom_overlay.visible, "mas continua a poder ler a carta")
 	game._close_zoom()
 
-	# Encher as 6 casas da frente tira as opções a um GUERREIRO
-	for lane in range(6):
-		place("player", unit("Bloqueio", "GUERREIRO"), "frente", lane)
+	# Com uma unidade em campo já dá
+	place("player", unit("Alvo", "GUERREIRO"), "frente", 1)
 	game._render_game()
-
 	game._on_hand_card_click(0)
-	check(not game.zoom_play.visible, "sem casas livres, não deixa jogar")
-	check(game.zoom_overlay.visible, "mas continua a poder ler a carta")
+	check(game.zoom_play.visible, "com unidade em campo, deixa jogar")
 	game._close_zoom()
 
 func test_valid_slots_highlighted() -> void:
 	print("Casas válidas acendem")
 	reset_board()
 	var atirador := unit("Arqueiro", "ATIRADOR")
-	set_hand([atirador])
+	set_reinforcements([atirador])
 	game._render_hands()
 
-	await game._commit_hand_selection(0, atirador)
-	check_eq(game._selected_hand_index, 0, "carta ficou escolhida")
+	game._commit_reinforcement_selection(0, atirador)
+	check_eq(game._selected_reinforcement, 0, "reforço ficou escolhido")
 
 	# ATIRADOR é de retaguarda: só as colunas 1-4 acendem
 	for lane in range(6):
@@ -185,37 +190,37 @@ func test_slot_click_places_card() -> void:
 	print("Clicar na casa coloca a carta")
 	reset_board()
 	var guerreiro := unit("Recruta", "GUERREIRO")
-	set_hand([guerreiro])
+	set_reinforcements([guerreiro])
 	game._render_hands()
 
-	await game._commit_hand_selection(0, guerreiro)
+	game._commit_reinforcement_selection(0, guerreiro)
 	await game._on_slot_clicked("player", "frente", 3)
 
 	var colocada = engine.players["player"]["front"][3]
 	check(colocada != null, "carta entrou na casa 3")
 	if colocada != null:
 		check_eq(str(colocada.get("nome", "")), "Recruta", "é a carta certa")
-	check_eq((engine.players["player"]["hand"] as Array).size(), 0, "saiu da mão")
-	check_eq(game._selected_hand_index, -1, "escolha limpa depois de colocar")
+	check_eq(engine.reinforcement_count("player"), 0, "saiu da reserva")
+	check_eq(game._selected_reinforcement, -1, "escolha limpa depois de colocar")
 	check(not slot_highlighted("player", "frente", 2), "destaques apagados")
 
 func test_wrong_slot_rejected() -> void:
 	print("Casa errada é recusada")
 	reset_board()
 	var atirador := unit("Arqueiro", "ATIRADOR")
-	set_hand([atirador])
+	set_reinforcements([atirador])
 	game._render_hands()
-	await game._commit_hand_selection(0, atirador)
+	game._commit_reinforcement_selection(0, atirador)
 
 	# ATIRADOR não pode ir para a frente
 	await game._on_slot_clicked("player", "frente", 0)
 	check(engine.players["player"]["front"][0] == null, "atirador não entra na frente")
-	check_eq((engine.players["player"]["hand"] as Array).size(), 1, "continua na mão")
+	check_eq(engine.reinforcement_count("player"), 1, "continua na reserva")
 
 	# nem para as pontas de Apoio
 	await game._on_slot_clicked("player", "retaguarda", 0)
 	check(engine.players["player"]["back"][0] == null, "não entra na ponta de Apoio")
-	check_eq((engine.players["player"]["hand"] as Array).size(), 1, "continua na mão")
+	check_eq(engine.reinforcement_count("player"), 1, "continua na reserva")
 
 	# mas entra numa coluna de combate
 	await game._on_slot_clicked("player", "retaguarda", 2)
@@ -225,26 +230,26 @@ func test_enemy_slots_ignored() -> void:
 	print("Casas do adversário não aceitam cartas tuas")
 	reset_board()
 	var guerreiro := unit("Recruta", "GUERREIRO")
-	set_hand([guerreiro])
+	set_reinforcements([guerreiro])
 	game._render_hands()
-	await game._commit_hand_selection(0, guerreiro)
+	game._commit_reinforcement_selection(0, guerreiro)
 
 	await game._on_slot_clicked("ai", "frente", 2)
 	check(engine.players["ai"]["front"][2] == null, "nada entrou no lado do adversário")
-	check_eq((engine.players["player"]["hand"] as Array).size(), 1, "carta continua na mão")
+	check_eq(engine.reinforcement_count("player"), 1, "reforço continua na reserva")
 
 func test_clicking_same_card_cancels() -> void:
 	print("Clicar outra vez na mesma carta desiste")
 	reset_board()
 	var guerreiro := unit("Recruta", "GUERREIRO")
-	set_hand([guerreiro])
+	set_reinforcements([guerreiro])
 	game._render_hands()
 
-	await game._commit_hand_selection(0, guerreiro)
-	check_eq(game._selected_hand_index, 0, "escolhida")
+	game._commit_reinforcement_selection(0, guerreiro)
+	check_eq(game._selected_reinforcement, 0, "escolhido")
 
-	game._on_hand_card_click(0)
-	check_eq(game._selected_hand_index, -1, "segundo clique desiste")
+	game._on_reinforcement_click(0)
+	check_eq(game._selected_reinforcement, -1, "segundo clique desiste")
 	check(not game.zoom_overlay.visible, "e não reabre a ampliação")
 
 func test_apoio_without_target_plays_now() -> void:
@@ -323,11 +328,11 @@ func test_equipment_targeting() -> void:
 		"id": "TAC-99", "nome": "Espada de Ferro", "faccao_slug": "reinos",
 		"tipo_tatico": "Equipamento", "bonus_ataque": 2, "imagem": "tatico-001.png"
 	}
-	engine.players["player"]["tacticoHand"] = [equipamento]
+	set_hand([equipamento])
 	game._render_hands()
 
 	var atk_antes := engine.get_effective_ataque(alvo)
-	await game._play_tactico(0, equipamento)
+	await game._commit_hand_selection(0, equipamento)
 	check(game.target_bar.visible, "pede alvo para equipar")
 	check(str(game.target_prompt.text).contains("Espada de Ferro"), "diz qual é o equipamento")
 

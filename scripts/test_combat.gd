@@ -30,7 +30,7 @@ func _run_tests() -> void:
 	# é o TestAI.
 	game.ai = null
 	engine = game.engine
-	board = game.get_node("VBoxContainer/BoardArea/Board")
+	board = game.get_node("VBoxContainer/Middle/BoardArea/Board")
 	await tree.process_frame
 
 	test_combat_runs_when_both_pass()
@@ -92,8 +92,8 @@ func reset() -> void:
 		p["front"] = [null, null, null, null, null, null]
 		p["back"] = [null, null, null, null, null, null]
 		p["hand"] = []
+		p["reinforcements"] = []
 		p["graveyard"] = []
-		p["unitPlaysThisRound"] = 0
 		p["donePlacing"] = false
 		p["lastApoio"] = null
 		p["apoiosBlocked"] = false

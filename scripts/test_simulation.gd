@@ -133,37 +133,29 @@ func _play_one(faction_a: String, faction_b: String) -> Dictionary:
 func _take_random_action(g: Game, who: String) -> bool:
 	var p: Dictionary = g.players[who]
 
-	# 1. Apoio (não passa prioridade)
+	# 1. Carta da mão — Apoios e Táticas saem pela mesma porta
 	var hand: Array = p["hand"]
 	for i in range(hand.size()):
-		if not hand[i].get("isApoio", false):
-			continue
-		var spec := _apoio_target_spec(g, who, str(hand[i].get("id", "")))
-		if g.play_apoio(who, i, spec).get("ok", false):
-			return true
-		break
-
-	# 2. Carta tática
-	var tac: Array = p["tacticoHand"]
-	for i in range(tac.size()):
+		var carta: Dictionary = hand[i]
 		var spec := {}
-		if str(tac[i].get("tipo_tatico", "")) == "Equipamento":
+		if carta.get("isApoio", false):
+			spec = _apoio_target_spec(g, who, str(carta.get("id", "")))
+		elif str(carta.get("tipo_tatico", "")) == "Equipamento":
 			var friends: Array = g.allies(who)
 			if friends.is_empty():
 				continue
 			spec["targetCard"] = friends[randi() % friends.size()]
-		if g.play_tatico_card(who, i, spec).get("ok", false):
+		if g.play_hand_card(who, i, spec).get("ok", false):
 			return true
 
-	# 3. Unidade numa casa livre
-	for i in range(hand.size()):
-		if hand[i].get("isApoio", false):
-			continue
+	# 2. Reforço da reserva numa casa livre
+	var reserva: Array = p["reinforcements"]
+	for i in range(reserva.size()):
 		for slot_type in ["frente", "retaguarda"]:
 			var lanes: Array = range(Game.FRONT_LANES) if slot_type == "frente" else Game.BACK_LANES
 			for lane in lanes:
-				if g.can_place_unit(who, hand[i], slot_type, lane):
-					if g.play_unit(who, i, slot_type, lane).get("ok", false):
+				if g.can_place_unit(who, reserva[i], slot_type, lane):
+					if g.place_reinforcement(who, i, slot_type, lane).get("ok", false):
 						return true
 	return false
 

@@ -26,7 +26,7 @@ func _run_tests() -> void:
 	game = load("res://scenes/Game.tscn").instantiate()
 	add_child(game)
 	game.ai = null
-	board = game.get_node("VBoxContainer/BoardArea/Board")
+	board = game.get_node("VBoxContainer/Middle/BoardArea/Board")
 	fx = game.get_node("FxLayer")
 	await tree.process_frame
 

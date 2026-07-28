@@ -39,7 +39,7 @@ func _run_tests() -> void:
 	test_apoio_target_choices()
 	test_requires_valid_target()
 	test_passes_when_nothing_to_do()
-	test_respects_unit_cap()
+	test_pool_limits_placement()
 	test_tatico_equipment_target()
 	test_tatico_magic_finishes_off()
 	test_tatico_consumable_only_when_worth_it()
@@ -98,18 +98,16 @@ func reset() -> void:
 		var p: Dictionary = engine.players[owner_id]
 		p["front"] = [null, null, null, null, null, null]
 		p["back"] = [null, null, null, null, null, null]
-		p["hand"] = []
 		p["graveyard"] = []
-		p["unitPlaysThisRound"] = 0
-		p["extraUnitCap"] = 0
-		p["freeNextUnit"] = false
 		p["donePlacing"] = false
 		p["apoiosBlocked"] = false
 		p["apoioDoubleNext"] = false
 		p["lastApoio"] = null
-		# A mão tática vem cheia do arranque; cada teste põe as que quiser
-		p["tacticoHand"] = []
-		p["tacticoDeck"] = []
+		# A mão e a reserva vêm cheias do arranque; cada teste põe o que quiser
+		p["hand"] = []
+		p["deck"] = []
+		p["reinforcements"] = []
+		p["militaryDeck"] = []
 	engine.towers = {"player": 30, "ai": 30}
 	engine.phase = "placement"
 	engine.active_player = "ai"
@@ -169,7 +167,7 @@ func test_never_uses_apoio_edges() -> void:
 func test_plays_best_unit_first() -> void:
 	print("Joga primeiro a melhor unidade")
 	reset()
-	engine.players["ai"]["hand"] = [
+	engine.players["ai"]["reinforcements"] = [
 		unit("Fraca", "GUERREIRO", 1, 1),
 		unit("Forte", "GUERREIRO", 5, 5),
 		unit("Média", "GUERREIRO", 2, 3)
@@ -185,15 +183,13 @@ func test_apoio_before_unit() -> void:
 	print("Joga Apoios antes de unidades")
 	reset()
 	# AP-06 não pede alvo
-	engine.players["ai"]["hand"] = [
-		unit("Unidade", "GUERREIRO", 3, 3),
-		apoio("AP-06", "Selo do Ecónomo")
-	]
+	engine.players["ai"]["hand"] = [apoio("AP-06", "Selo do Ecónomo")]
+	engine.players["ai"]["reinforcements"] = [unit("Unidade", "GUERREIRO", 3, 3)]
 
 	ai.step(engine)
 	check(engine.players["ai"]["apoioDoubleNext"], "o Apoio saiu primeiro")
-	check_eq(engine.players["ai"]["front"][2], null, "a unidade ainda não entrou")
-	check_eq((engine.players["ai"]["hand"] as Array).size(), 2, "jogou o Apoio e comprou uma carta")
+	check_eq(engine.players["ai"]["front"][2], null, "o reforço ainda não entrou")
+	check_eq(engine.reinforcement_count("ai"), 1, "continua na reserva")
 
 func test_apoio_target_choices() -> void:
 	print("Escolhe alvos com sentido")
@@ -251,55 +247,53 @@ func test_passes_when_nothing_to_do() -> void:
 	print("Passa quando não tem nada a fazer")
 	reset()
 	engine.players["ai"]["hand"] = []
+	engine.players["ai"]["reinforcements"] = []
 
 	ai.step(engine)
-	check(engine.players["ai"]["donePlacing"], "passou de mão vazia")
+	check(engine.players["ai"]["donePlacing"], "passou de mão e reserva vazias")
 
-	# Mão só com cartas sem casa livre
+	# Reserva só com cartas sem casa livre
 	reset()
 	for lane in range(6):
 		place("ai", unit("Ocupa", "GUERREIRO", 1, 1), "frente", lane)
-	engine.players["ai"]["hand"] = [unit("SemCasa", "GUERREIRO", 9, 9)]
+	for lane in [1, 2, 3, 4]:
+		place("ai", unit("OcupaR", "CURADOR", 1, 1), "retaguarda", lane)
+	engine.players["ai"]["reinforcements"] = [unit("SemCasa", "GUERREIRO", 9, 9)]
 
 	ai.step(engine)
 	check(engine.players["ai"]["donePlacing"], "passou por não ter casa livre")
-	check_eq((engine.players["ai"]["hand"] as Array).size(), 1, "a carta ficou na mão")
+	check_eq(engine.reinforcement_count("ai"), 1, "o reforço ficou na reserva")
 
-func test_respects_unit_cap() -> void:
-	print("Respeita o limite de unidades por turno")
+func test_pool_limits_placement() -> void:
+	print("A reserva é que limita as colocações")
 	reset()
-	var mao := []
-	for i in range(8):
-		mao.append(unit("U%d" % i, "GUERREIRO", 2, 2))
-	engine.players["ai"]["hand"] = mao
+	var reserva := []
+	for i in range(3):
+		reserva.append(unit("U%d" % i, "GUERREIRO", 2, 2))
+	engine.players["ai"]["reinforcements"] = reserva.duplicate()
 
 	# Com o jogador ainda a decidir, a prioridade volta-lhe a cada jogada e a
 	# IA só age uma vez — é o sistema alternado, não um defeito.
 	ai.step(engine)
-	check_eq(engine.allies("ai").size(), 1, "com a prioridade a alternar, joga uma de cada vez")
+	check_eq(engine.allies("ai").size(), 1, "com a prioridade a alternar, coloca uma de cada vez")
 	check_eq(engine.active_player, "player", "e devolve a vez ao jogador")
 
-	# Com o jogador já passado, a IA joga até esgotar o limite do turno
+	# Com o jogador já passado, a IA esvazia a reserva e pára
 	reset()
-	engine.players["ai"]["hand"] = mao.duplicate()
+	engine.players["ai"]["reinforcements"] = reserva.duplicate()
 	engine.players["player"]["donePlacing"] = true
 
-	var limite := engine.get_unit_cap("ai")
 	var turno := engine.current_round
 	var guard := 0
-	while engine.phase == "placement" and engine.active_player == "ai" \
-		and engine.current_round == turno and guard < 30:
+	while engine.phase == "placement" and engine.active_player == "ai" 		and engine.current_round == turno and guard < 30:
 		guard += 1
 		ai.step(engine)
 
-	var em_campo := engine.allies("ai").size()
-	check(em_campo <= limite, "nunca passa do limite (colocou %d, limite %d)" % [em_campo, limite])
-	check_eq(em_campo, limite, "aproveitou o limite todo")
-	check(guard <= limite, "%d jogadas para %d unidades — nenhuma tentativa a mais" % [guard, limite])
-	# Ao atingir o limite a IA fica marcada como pronta; como o jogador já
-	# tinha passado, o turno resolve-se logo. É essa a prova de que parou.
-	check_eq(engine.current_round, turno + 1, "atingiu o limite e o turno avançou")
-	check(engine.players["ai"]["hand"].size() > 0, "as restantes ficaram na mão")
+	check_eq(engine.allies("ai").size(), 3, "colocou as três da reserva")
+	check_eq(engine.reinforcement_count("ai"), 0, "reserva esvaziada")
+	# Sem reserva e sem mão fica pronta; como o jogador já tinha passado, o
+	# turno resolve-se logo. É essa a prova de que parou.
+	check_eq(engine.current_round, turno + 1, "esgotou a reserva e o turno avançou")
 
 # ---------------------------------------------------------------- táticas
 
@@ -311,9 +305,10 @@ func tatico(tipo: String, nome: String, campos: Dictionary = {}) -> Dictionary:
 	c.merge(campos)
 	return c
 
+# A mão é uma só; isto põe lá as cartas que o teste quer.
 func set_taticos(cards: Array) -> void:
-	engine.players["ai"]["tacticoHand"] = cards.duplicate()
-	engine.players["ai"]["tacticoDeck"] = []
+	engine.players["ai"]["hand"] = cards.duplicate()
+	engine.players["ai"]["deck"] = []
 
 func test_tatico_equipment_target() -> void:
 	print("Equipamento vai para quem mais lucra")
@@ -438,9 +433,9 @@ func test_tatico_skips_inert_types() -> void:
 
 	# Com só estas na mão tática, não joga nenhuma
 	set_taticos([construcao, clima])
-	engine.players["ai"]["hand"] = []
+	engine.players["ai"]["reinforcements"] = []
 	ai.step(engine)
-	check_eq((engine.players["ai"]["tacticoHand"] as Array).size(), 2, "ficaram as duas na mão")
+	check_eq((engine.players["ai"]["hand"] as Array).size(), 2, "ficaram as duas na mão")
 	check(engine.players["ai"]["donePlacing"], "passou em vez de as desperdiçar")
 
 func test_tatico_turn_limit() -> void:
@@ -452,11 +447,11 @@ func test_tatico_turn_limit() -> void:
 	var magias := []
 	for i in range(6):
 		magias.append(tatico("Magia", "Golpe%d" % i, {"dano": 2}))
-	engine.players["ai"]["tacticoHand"] = magias
-	engine.players["ai"]["tacticoDeck"] = magias.duplicate()
-	# Uma unidade na mão para o motor não dar o turno por terminado à
+	engine.players["ai"]["hand"] = magias
+	engine.players["ai"]["deck"] = magias.duplicate()
+	# Um reforço na reserva para o motor não dar o turno por terminado à
 	# primeira: sem jogadas possíveis, _check_auto_advance fecha-o logo.
-	engine.players["ai"]["hand"] = [unit("Reserva", "GUERREIRO", 1, 1)]
+	engine.players["ai"]["reinforcements"] = [unit("Reserva", "GUERREIRO", 1, 1)]
 
 	var guard := 0
 	while engine.phase == "placement" and engine.active_player == "ai" and guard < 20:
@@ -469,20 +464,20 @@ func test_tatico_turn_limit() -> void:
 		"dano corresponde ao limite de táticas")
 
 func test_tatico_order_before_units() -> void:
-	print("Táticas antes de gastar a jogada de unidade")
+	print("Táticas antes de gastar o reforço")
 	reset()
 	place("ai", unit("EmCampo", "GUERREIRO", 5, 6), "frente", 1)
-	engine.players["ai"]["hand"] = [unit("NaMão", "GUERREIRO", 3, 3)]
+	engine.players["ai"]["reinforcements"] = [unit("NaReserva", "GUERREIRO", 3, 3)]
 	set_taticos([tatico("Equipamento", "Espada", {"bonus_ataque": 2, "bonus_vida": 0})])
 
 	ai.step(engine)
-	check_eq(int(engine.players["ai"]["unitPlaysThisRound"]), 0, "não gastou a jogada de unidade")
-	check_eq((engine.players["ai"]["tacticoHand"] as Array).size(), 0, "a tática saiu")
+	check_eq(engine.reinforcement_count("ai"), 1, "não gastou o reforço")
+	check_eq((engine.players["ai"]["hand"] as Array).size(), 0, "a tática saiu")
 
 func test_ui_lets_ai_play() -> void:
 	print("A UI deixa a IA jogar de verdade")
 	reset()
-	engine.players["ai"]["hand"] = [
+	engine.players["ai"]["reinforcements"] = [
 		unit("Guerreiro", "GUERREIRO", 3, 4),
 		unit("Tanque", "TANQUE", 1, 6, 2)
 	]

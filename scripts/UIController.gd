@@ -36,13 +36,20 @@ var _pending_apoio: Dictionary = {}     # hand_index, def, card_def, pair_from
 var _pending_tactico: Dictionary = {}   # index, card_def
 var _busy: bool = false
 
-@onready var tatico_container: HBoxContainer = $VBoxContainer/TacticoHand/CardContainer
-@onready var hand_container: HBoxContainer = $VBoxContainer/Hand/HandContainer
+@onready var hand_container: HBoxContainer = $VBoxContainer/HandRow/Hand/HandContainer
 @onready var hud_label: Label = $VBoxContainer/TopRow/HUD
 @onready var music_button: Button = $VBoxContainer/TopRow/ButtonMusic
-@onready var pass_button: Button = $VBoxContainer/ButtonPass
-@onready var board_area: AspectRatioContainer = $VBoxContainer/BoardArea
-@onready var board: BoardRenderer = $VBoxContainer/BoardArea/Board
+@onready var pass_button: Button = $VBoxContainer/HandRow/ButtonPass
+@onready var board_area: AspectRatioContainer = $VBoxContainer/Middle/BoardArea
+@onready var board: BoardRenderer = $VBoxContainer/Middle/BoardArea/Board
+
+@onready var reinforcement_panel: PanelContainer = $VBoxContainer/Middle/ReinforcementPanel
+@onready var reinforcement_slots: VBoxContainer = $VBoxContainer/Middle/ReinforcementPanel/Column/Slots
+@onready var reinforcement_count: Label = $VBoxContainer/Middle/ReinforcementPanel/Column/Count
+@onready var reinforcement_title: Label = $VBoxContainer/Middle/ReinforcementPanel/Column/Title
+
+# Qual reforço está escolhido para entrar em campo (-1 = nenhum)
+var _selected_reinforcement: int = -1
 
 @onready var zoom_overlay: Control = $ZoomOverlay
 @onready var zoom_card: TextureRect = $ZoomOverlay/Center/Column/ZoomCard
@@ -122,6 +129,19 @@ func _setup_overlays() -> void:
 	_refresh_music_button()
 	gameover_title.add_theme_color_override("font_color", Palette.EMBER_300)
 	gameover_subtitle.add_theme_color_override("font_color", Palette.PARCHMENT_DIM)
+	_style_reinforcement_panel()
+
+func _style_reinforcement_panel() -> void:
+	var moldura := StyleBoxFlat.new()
+	moldura.bg_color = Color(Palette.STONE_900, 0.72)
+	moldura.border_color = Palette.STONE_600
+	moldura.set_border_width_all(1)
+	moldura.set_corner_radius_all(10)
+	moldura.set_content_margin_all(10)
+	reinforcement_panel.add_theme_stylebox_override("panel", moldura)
+
+	reinforcement_title.add_theme_color_override("font_color", Palette.EMBER_300)
+	reinforcement_count.add_theme_color_override("font_color", Palette.PARCHMENT_DIM)
 
 func _on_toggle_music() -> void:
 	Sfx.toggle_muted()
@@ -162,7 +182,7 @@ func is_my_turn() -> bool:
 func is_targeting() -> bool:
 	return not _pending_apoio.is_empty() or not _pending_tactico.is_empty()
 
-# Espelha anyOpenSlot() do web.
+# Há casa livre no tabuleiro para esta unidade?
 func any_open_slot(card_def: Dictionary) -> bool:
 	for i in range(Game.FRONT_LANES):
 		if engine.can_place_unit("player", card_def, "frente", i):
@@ -177,7 +197,10 @@ func is_hand_card_playable(card_def: Dictionary) -> bool:
 		return false
 	if card_def.get("isApoio", false):
 		return not engine.players["player"]["apoiosBlocked"]
-	return any_open_slot(card_def)
+	# Um Equipamento sem unidade amiga em campo não tem onde ir
+	if str(card_def.get("tipo_tatico", "")) == "Equipamento":
+		return not engine.allies("player").is_empty()
+	return true
 
 # ---------------------------------------------------------------- render
 
@@ -279,47 +302,81 @@ func _sync_slot(owner_id: String, slot_type: String, lane: int, card) -> void:
 	vista.play_enter_animation(animation_speed)
 
 func _render_hands() -> void:
-	for container in [tatico_container, hand_container]:
-		for child in container.get_children():
-			container.remove_child(child)
-			child.queue_free()
+	_render_hand()
+	_render_reinforcements()
 
-	var p: Dictionary = engine.players["player"]
+# A mão é uma só — Apoios e Táticas, com a arte inteira e sem stats por cima.
+func _render_hand() -> void:
+	for child in hand_container.get_children():
+		hand_container.remove_child(child)
+		child.queue_free()
 
-	var tactico_hand: Array = p["tacticoHand"]
-	for i in range(tactico_hand.size()):
-		tatico_container.add_child(_make_hand_card(tactico_hand[i], i, true))
+	var mao: Array = engine.players["player"]["hand"]
+	for i in range(mao.size()):
+		hand_container.add_child(_make_hand_card(mao[i], i))
 
-	var hand: Array = p["hand"]
-	for i in range(hand.size()):
-		hand_container.add_child(_make_hand_card(hand[i], i, false))
-
-# Na mão o web mostra só a arte da carta, sem stats sobrepostos.
-func _make_hand_card(card_def: Dictionary, index: int, tatico: bool) -> Control:
-	var altura := 84.0 if tatico else 116.0
+func _make_hand_card(card_def: Dictionary, index: int) -> Control:
+	var altura := 132.0
 	var largura := altura * (750.0 / 1050.0)
 
 	var vista := CardView.new()
 	vista.show_overlays = false
 	vista.custom_minimum_size = Vector2(largura, altura)
-
-	var jogavel := is_my_turn() if tatico else is_hand_card_playable(card_def)
-	var escolhida := (not tatico) and index == _selected_hand_index
-
-	if escolhida:
-		vista.modulate = Color(1.15, 1.05, 0.9, 1)
-	elif jogavel:
-		vista.modulate = Color(1, 1, 1, 1)
-	else:
-		vista.modulate = Color(0.55, 0.55, 0.55, 1)
-
-	if tatico:
-		vista.card_clicked.connect(func(_c): _on_tactico_card_click(index))
-	else:
-		vista.card_clicked.connect(func(_c): _on_hand_card_click(index))
-
+	vista.modulate = Color(1, 1, 1, 1) if is_hand_card_playable(card_def) else Color(0.55, 0.55, 0.55, 1)
+	vista.card_clicked.connect(func(_c): _on_hand_card_click(index))
 	vista.bind(engine, card_def)
 	return vista
+
+# Reserva de reforços: MAX_REFORCOS casas, as vazias com marca ténue.
+func _render_reinforcements() -> void:
+	for child in reinforcement_slots.get_children():
+		reinforcement_slots.remove_child(child)
+		child.queue_free()
+
+	var reserva: Array = engine.players["player"]["reinforcements"]
+	for i in range(Game.MAX_REFORCOS):
+		if i < reserva.size():
+			reinforcement_slots.add_child(_make_reinforcement_card(reserva[i], i))
+		else:
+			reinforcement_slots.add_child(_make_empty_reinforcement_slot())
+
+	var cheia := engine.reinforcements_full("player")
+	reinforcement_count.text = "%d / %d" % [reserva.size(), Game.MAX_REFORCOS]
+	# Reserva cheia avisa que o reforço do próximo turno se perde
+	reinforcement_count.add_theme_color_override("font_color",
+		Palette.EMBER_400 if cheia else Palette.PARCHMENT_DIM)
+
+func _make_reinforcement_card(card_def: Dictionary, index: int) -> Control:
+	var vista := CardView.new()
+	vista.show_overlays = false
+	vista.custom_minimum_size = Vector2(0, 104)
+	vista.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	var escolhido := index == _selected_reinforcement
+	if escolhido:
+		vista.modulate = Color(1.3, 1.15, 0.95, 1)
+	elif is_my_turn():
+		vista.modulate = Color(1, 1, 1, 1)
+	else:
+		vista.modulate = Color(0.6, 0.6, 0.6, 1)
+
+	vista.card_clicked.connect(func(_c): _on_reinforcement_click(index))
+	vista.bind(engine, card_def)
+	return vista
+
+func _make_empty_reinforcement_slot() -> Control:
+	var casa := Panel.new()
+	casa.custom_minimum_size = Vector2(0, 104)
+	casa.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	casa.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var estilo := StyleBoxFlat.new()
+	estilo.bg_color = Color(0, 0, 0, 0.25)
+	estilo.border_color = Palette.STONE_600
+	estilo.set_border_width_all(1)
+	estilo.set_corner_radius_all(6)
+	casa.add_theme_stylebox_override("panel", estilo)
+	return casa
 
 func _render_hud() -> void:
 	var turn_text := ""
@@ -332,10 +389,10 @@ func _render_hud() -> void:
 	else:
 		turn_text = "Vez do adversário"
 
-	hud_label.text = "CORREDOR — Turno %d/%d | %s\nTorres  tu %d  ·  adversário %d   |   Unidades %d/%d" % [
+	hud_label.text = "CORREDOR — Turno %d/%d | %s\nTorres  tu %d  ·  adversário %d   |   Reforços %d/%d" % [
 		engine.current_round, Game.ROUND_LIMIT, turn_text,
 		engine.towers["player"], engine.towers["ai"],
-		engine.players["player"]["unitPlaysThisRound"], engine.get_unit_cap("player")
+		engine.reinforcement_count("player"), Game.MAX_REFORCOS
 	]
 
 # ---------------------------------------------------------------- zoom
@@ -382,7 +439,7 @@ func _on_backdrop_input(event: InputEvent) -> void:
 		if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
 			_close_zoom()
 
-# ---------------------------------------------------------------- mão militar
+# ---------------------------------------------------------------- mão
 
 func _on_hand_card_click(idx: int) -> void:
 	if _busy or engine.phase != "placement" or engine.active_player != "player":
@@ -403,26 +460,57 @@ func _on_hand_card_click(idx: int) -> void:
 func _commit_hand_selection(idx: int, card_def: Dictionary) -> void:
 	_clear_targeting()
 
-	if not card_def.get("isApoio", false):
+	# Apoio com alvo
+	if card_def.get("isApoio", false):
+		if engine.players["player"]["apoiosBlocked"]:
+			return
+		var def := engine.abilities.get_apoio_ability(str(card_def.get("id", "")))
+		if def.is_empty():
+			return
+		if def.get("needsTarget") == null:
+			_play_hand_card(idx, {})
+			return
+		_pending_apoio = {"hand_index": idx, "def": def, "card_def": card_def, "pair_from": null}
 		_selected_hand_index = idx
-		_highlight_valid_slots(card_def)
+		_begin_apoio_targeting()
 		_render_hands()
 		return
 
-	# Apoio
-	if engine.players["player"]["apoiosBlocked"]:
-		return
-	var def := engine.abilities.get_apoio_ability(str(card_def.get("id", "")))
-	if def.is_empty():
+	# Equipamento precisa de uma unidade amiga
+	if str(card_def.get("tipo_tatico", "")) == "Equipamento":
+		_pending_tactico = {"index": idx, "card_def": card_def}
+		_selected_hand_index = idx
+		_show_target_bar("Escolhe uma unidade para equipar com %s" % card_def.get("nome", ""))
+		for c in engine.allies("player"):
+			_mark_card(c, true)
+		_render_hands()
 		return
 
-	if def.get("needsTarget") == null:
-		_play_apoio(idx, {})
+	# As outras táticas resolvem-se logo
+	_play_hand_card(idx, {})
+
+# ---------------------------------------------------------------- reforços
+
+func _on_reinforcement_click(idx: int) -> void:
+	if _busy or engine.phase != "placement" or engine.active_player != "player":
+		return
+	var reserva: Array = engine.players["player"]["reinforcements"]
+	if idx < 0 or idx >= reserva.size():
 		return
 
-	_pending_apoio = {"hand_index": idx, "def": def, "card_def": card_def, "pair_from": null}
-	_selected_hand_index = idx
-	_begin_apoio_targeting()
+	# Clicar outra vez no mesmo reforço desiste
+	if _selected_reinforcement == idx:
+		_clear_targeting()
+		return
+
+	var card_def: Dictionary = reserva[idx]
+	Sfx.clique()
+	_open_zoom(card_def, true, func(): _commit_reinforcement_selection(idx, card_def))
+
+func _commit_reinforcement_selection(idx: int, card_def: Dictionary) -> void:
+	_clear_targeting()
+	_selected_reinforcement = idx
+	_highlight_valid_slots(card_def)
 	_render_hands()
 
 func _highlight_valid_slots(card_def: Dictionary) -> void:
@@ -434,33 +522,31 @@ func _highlight_valid_slots(card_def: Dictionary) -> void:
 			board.highlight_slot("player", "retaguarda", i, true)
 
 func _on_slot_clicked(owner_id: String, slot_type: String, lane: int) -> void:
-	if _busy or _selected_hand_index < 0 or is_targeting():
+	if _busy or _selected_reinforcement < 0 or is_targeting():
 		return
 	if owner_id != "player":
 		return
 
-	var hand: Array = engine.players["player"]["hand"]
-	if _selected_hand_index >= hand.size():
+	var reserva: Array = engine.players["player"]["reinforcements"]
+	if _selected_reinforcement >= reserva.size():
 		return
-	var card_def: Dictionary = hand[_selected_hand_index]
-	if card_def.get("isApoio", false):
-		return
+	var card_def: Dictionary = reserva[_selected_reinforcement]
 	if not engine.can_place_unit("player", card_def, slot_type, lane):
 		return
 
-	var idx := _selected_hand_index
-	# Capturar antes de limpar a mão, senão a carta já não está lá para copiar
+	var idx := _selected_reinforcement
+	# Capturar antes de limpar, senão a carta já não está lá para copiar
 	var viagem := _travel_rects(idx, owner_id, slot_type, lane)
 	_clear_targeting()
 	await _fly_card(card_def, viagem)
 	Sfx.unidade()
-	await _run_action(func(): return engine.play_unit("player", idx, slot_type, lane))
+	await _run_action(func(): return engine.place_reinforcement("player", idx, slot_type, lane))
 
-# De onde para onde a carta voa: da posição dela na mão até à casa escolhida.
-func _travel_rects(hand_index: int, owner_id: String, slot_type: String, lane: int) -> Dictionary:
-	if hand_index < 0 or hand_index >= hand_container.get_child_count():
+# De onde para onde a carta voa: da casa da reserva até à casa do tabuleiro.
+func _travel_rects(reinforcement_index: int, owner_id: String, slot_type: String, lane: int) -> Dictionary:
+	if reinforcement_index < 0 or reinforcement_index >= reinforcement_slots.get_child_count():
 		return {}
-	var origem: Control = hand_container.get_child(hand_index)
+	var origem: Control = reinforcement_slots.get_child(reinforcement_index)
 	var destino := board.slot_control(owner_id, slot_type, lane)
 	if origem == null or destino == null:
 		return {}
@@ -528,46 +614,26 @@ func _find_card_view(uid: String) -> CardView:
 						return child
 	return null
 
+# Uma carta da mão sai sempre por aqui, seja Apoio ou Tática.
+func _play_hand_card(idx: int, spec: Dictionary) -> void:
+	var mao: Array = engine.players["player"]["hand"]
+	var card_def: Dictionary = mao[idx] if idx < mao.size() else {}
+	var apoio: bool = card_def.get("isApoio", false)
+	_clear_targeting()
+
+	if apoio:
+		Sfx.apoio()
+	else:
+		Sfx.carta()
+	await _run_action(func(): return engine.play_hand_card("player", idx, spec))
+
+# Mantido pelo nome antigo — o Apoio é só mais uma carta da mão.
 func _play_apoio(idx: int, spec: Dictionary) -> void:
-	# O Apoio voa da mão para a zona de Apoio, onde se resolve e fica
-	var card_def: Dictionary = engine.players["player"]["hand"][idx] if idx < (engine.players["player"]["hand"] as Array).size() else {}
-	var viagem := _travel_rects(idx, "player", "retaguarda", 0)
-	_clear_targeting()
-	if not card_def.is_empty():
-		await _fly_card(card_def, viagem)
-	Sfx.apoio()
-	await _run_action(func(): return engine.play_apoio("player", idx, spec))
-
-# ---------------------------------------------------------------- táticas
-
-func _on_tactico_card_click(idx: int) -> void:
-	if _busy or engine.phase != "placement" or engine.active_player != "player":
-		return
-	var mao: Array = engine.players["player"]["tacticoHand"]
-	if idx < 0 or idx >= mao.size():
-		return
-	var card_def: Dictionary = mao[idx]
-	Sfx.clique()
-	_open_zoom(card_def, is_my_turn(), func(): _play_tactico(idx, card_def))
-
-func _play_tactico(idx: int, card_def: Dictionary) -> void:
-	# Equipamentos precisam de uma unidade amiga para vestir
-	if str(card_def.get("tipo_tatico", "")) == "Equipamento":
-		_clear_targeting()
-		_pending_tactico = {"index": idx, "card_def": card_def}
-		_show_target_bar("Escolhe uma unidade para equipar com %s" % card_def.get("nome", ""))
-		for c in engine.allies("player"):
-			_mark_card(c, true)
-		_render_hands()
-		return
-
-	_clear_targeting()
-	await _run_action(func(): return engine.play_tatico_card("player", idx, {}))
+	await _play_hand_card(idx, spec)
 
 func _confirm_tactico_target(target_card: Dictionary) -> void:
 	var idx: int = int(_pending_tactico["index"])
-	_clear_targeting()
-	await _run_action(func(): return engine.play_tatico_card("player", idx, {"targetCard": target_card}))
+	await _play_hand_card(idx, {"targetCard": target_card})
 
 # ---------------------------------------------------------------- alvos
 
@@ -579,6 +645,7 @@ func _clear_targeting() -> void:
 	_pending_apoio = {}
 	_pending_tactico = {}
 	_selected_hand_index = -1
+	_selected_reinforcement = -1
 	board.clear_highlights()
 	_clear_card_marks()
 	target_bar.visible = false

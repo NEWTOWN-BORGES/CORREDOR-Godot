@@ -12,7 +12,7 @@ var _failed := 0
 func _initialize() -> void:
 	print("\n=== CORREDOR — testes do motor ===\n")
 	test_init()
-	test_play_unit()
+	test_place_reinforcement()
 	test_shield_absorbs_before_life()
 	test_lethal_damage_kills()
 	test_ability_static_guerreiro()
@@ -56,9 +56,21 @@ func make_unit(id: String, nome: String, papel: String, atk: int, vida: int, esc
 func make_apoio(id: String, nome: String) -> Dictionary:
 	return {"id": id, "nome": nome, "faccao_slug": "teste", "isApoio": true}
 
+# Reparte um array de cartas pelos dois montes que o motor espera: unidades
+# para o Baralho Militar, Apoios e Táticas para a mão.
+func split_deck(cards: Array) -> Dictionary:
+	var militar := []
+	var mao := []
+	for c in cards:
+		if c.get("isApoio", false) or str(c.get("tipo_tatico", "")) != "":
+			mao.append(c)
+		else:
+			militar.append(c)
+	return {"militar": militar, "mao": mao}
+
 func new_game(player_deck: Array, ai_deck: Array) -> Game:
 	var g := Game.new()
-	g.init_game(player_deck, ai_deck, func(_msg): pass)
+	g.init_game(split_deck(player_deck), split_deck(ai_deck), func(_msg): pass)
 	return g
 
 # Coloca uma carta directamente no tabuleiro, sem passar pelas regras de turno.
@@ -86,17 +98,19 @@ func test_init() -> void:
 	check_eq(g.current_round, 1, "começa no turno 1")
 	check_eq(g.phase, "placement", "começa em colocação")
 	check_eq(g.active_player, "player", "jogador começa")
+	# O baralho de teste tem 3 unidades e a reserva arranca cheia
+	check_eq(g.reinforcement_count("player"), Game.REFORCOS_INICIAIS, "reserva arranca cheia")
 	check(not (g.players["player"]["hand"] as Array).is_empty(), "jogador tem cartas na mão")
 
-func test_play_unit() -> void:
-	print("Colocar unidade")
+func test_place_reinforcement() -> void:
+	print("Colocar reforço")
 	var deck := [make_unit("t1", "Guerreiro", "GUERREIRO", 2, 3)]
 	var g := new_game(deck.duplicate(true), deck.duplicate(true))
-	var hand_before: int = (g.players["player"]["hand"] as Array).size()
+	var reserva_antes: int = g.reinforcement_count("player")
 
-	var result := g.play_unit("player", 0, "frente", 0)
+	var result := g.place_reinforcement("player", 0, "frente", 0)
 	check(result.get("ok", false), "jogada aceite")
-	check_eq((g.players["player"]["hand"] as Array).size(), hand_before - 1, "carta sai da mão")
+	check_eq(g.reinforcement_count("player"), reserva_antes - 1, "reforço sai da reserva")
 	check(g.players["player"]["front"][0] != null, "carta está no tabuleiro")
 
 	var card: Dictionary = g.players["player"]["front"][0]
@@ -208,7 +222,7 @@ func test_apoio_shield() -> void:
 		check(false, "apoio presente na mão inicial")
 		return
 
-	var result := g.play_apoio("player", apoio_idx, {"target": alvo})
+	var result := g.play_hand_card("player", apoio_idx, {"target": alvo})
 	check(result.get("ok", false), "apoio jogado")
 	check_eq(int(alvo["escudoAtual"]), escudo_antes + 3, "alvo ganha 3 de escudo")
 
@@ -224,7 +238,7 @@ func test_equipment_bonus_and_removal() -> void:
 	var atk_antes := g.get_effective_ataque(alvo)
 	var vida_antes := int(alvo["vidaAtual"])
 
-	var result := g.play_tatico_card("player", 0, {"targetCard": alvo})
+	var result := g.play_hand_card("player", 0, {"targetCard": alvo})
 	check(result.get("ok", false), "equipamento aplicado")
 	check_eq(g.get_effective_ataque(alvo), atk_antes + 2, "+2 de ataque")
 	check_eq(int(alvo["vidaAtual"]), vida_antes + 1, "+1 de vida")
@@ -248,5 +262,6 @@ func test_full_round_advances() -> void:
 
 	check_eq(g.current_round, 2, "avançou para o turno 2")
 	check_eq(g.phase, "placement", "voltou à fase de colocação")
-	check_eq(g.players["player"]["unitPlaysThisRound"], 0, "contador de unidades reposto")
+	# A reserva já estava cheia, por isso o reforço do turno perdeu-se
+	check_eq(g.reinforcement_count("player"), Game.MAX_REFORCOS, "reserva continua cheia")
 	check(not g.players["player"]["donePlacing"], "flag de passar reposta")

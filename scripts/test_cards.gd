@@ -26,7 +26,7 @@ func _run_tests() -> void:
 	game = load("res://scenes/Game.tscn").instantiate()
 	add_child(game)
 	engine = game.engine
-	board = game.get_node("VBoxContainer/BoardArea/Board")
+	board = game.get_node("VBoxContainer/Middle/BoardArea/Board")
 	await tree.process_frame
 
 	test_board_card_appears()

@@ -1,42 +1,41 @@
 extends RefCounted
 class_name DeckManager
 
-# Constrói um baralho para uma facção (tradução de js/deck-builder.js):
-# todos os Apoios dessa facção + unidades por ordem de custo crescente até
-# completar 20, mais todas as cartas táticas da facção.
+# Monta os dois montes de uma facção:
+#
+#   militar — só unidades. Fica oculto e vai largando reforços.
+#   mao     — Apoios + Táticas. É de onde sai a única mão do jogador.
+#
+# Os Apoios ficam com as Táticas porque são o mesmo tipo de carta: jogas da
+# mão, faz efeito, sai. Não ocupam casa nem combatem.
 #
 # As cartas são duplicadas — nunca devolvemos referências para as definições
 # originais de cartas.json, senão os dois jogadores partilhariam o mesmo
 # objecto e marcar `isApoio` num contaminaria o outro.
 
-const DECK_SIZE := 20
-
-static func build_faction_deck(cartas: Dictionary, faccao_slug: String) -> Array:
-	var apoios_f := []
-	for c in cartas.get("apoios", []):
-		if str(c.get("faccao_slug", "")) == faccao_slug:
-			var copy: Dictionary = c.duplicate(true)
-			copy["isApoio"] = true
-			apoios_f.append(copy)
-
-	var unidades_f := []
+static func build_faction_deck(cartas: Dictionary, faccao_slug: String) -> Dictionary:
+	var militar := []
 	for c in cartas.get("unidades", []):
 		if str(c.get("faccao_slug", "")) == faccao_slug:
-			var copy: Dictionary = c.duplicate(true)
-			copy["isApoio"] = false
-			unidades_f.append(copy)
-	unidades_f.sort_custom(func(a, b): return int(a.get("custo", 0)) < int(b.get("custo", 0)))
+			var copia: Dictionary = c.duplicate(true)
+			copia["isApoio"] = false
+			militar.append(copia)
+	# Do mais barato para o mais caro: os primeiros reforços são os mais leves
+	militar.sort_custom(func(a, b): return int(a.get("custo", 0)) < int(b.get("custo", 0)))
 
-	var remaining: int = max(0, DECK_SIZE - apoios_f.size())
-	var deck := apoios_f.duplicate()
-	deck.append_array(unidades_f.slice(0, remaining))
-
-	# Cartas táticas da facção (baralho separado, o motor separa-as por tipo_tatico)
+	var mao := []
+	for c in cartas.get("apoios", []):
+		if str(c.get("faccao_slug", "")) == faccao_slug:
+			var copia: Dictionary = c.duplicate(true)
+			copia["isApoio"] = true
+			mao.append(copia)
 	for c in cartas.get("taticos", []):
 		if str(c.get("faccao_slug", "")) == faccao_slug:
-			deck.append(c.duplicate(true))
+			var copia: Dictionary = c.duplicate(true)
+			copia["isApoio"] = false
+			mao.append(copia)
 
-	return deck
+	return {"militar": militar, "mao": mao}
 
 static func list_factions(cartas: Dictionary) -> Array:
 	var seen := {}

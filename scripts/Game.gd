@@ -1,13 +1,15 @@
 extends RefCounted
 class_name Game
 
-# Motor de jogo — CORREDOR (tradução 1:1 de js/game-engine.js, v4 torres)
+# Motor de jogo — CORREDOR (v5, sistema de reforços)
 #
-#   - Sem Energia/mana. Cada jogador pode jogar até 3 unidades por turno
-#     (6 no turno 1).
-#   - Jogo alternado ao estilo Gwent: alterna prioridade, uma carta de cada vez,
-#     até ambos passarem ou esgotarem o limite de unidades.
-#   - Apoios custam 0, sem limite; jogar um Apoio não passa prioridade.
+#   - Uma só mão, de 5 cartas: Apoios e Táticas. Custam 0 e jogar uma não
+#     passa a prioridade ao adversário.
+#   - O Baralho Militar está oculto e larga 1 reforço por turno, até 3
+#     guardados. Um reforço entra em qualquer casa válida livre, e é isso que
+#     passa a prioridade. Sem reserva não há unidades — guardar ou gastar é a
+#     decisão do jogo.
+#   - Jogo alternado ao estilo Gwent, até ambos passarem.
 #   - Tabuleiro: 6 colunas na frente (Tanque/Guerreiro). Retaguarda tem 4
 #     colunas de combate (1-4); as colunas 0 e 5 são só para Apoios.
 #   - Cada jogador tem a sua Torre (30 de vida). Coluna limpa → ataque à Torre.
@@ -17,10 +19,18 @@ const FRONT_ROLES := ["TANQUE", "GUERREIRO"]
 const BACK_ROLES := ["ASSASSINO", "CURADOR", "ATIRADOR"]
 const FRONT_LANES := 6
 const BACK_LANES := [1, 2, 3, 4]
-const BASE_UNIT_CAP := 3
 const TOWER_MAX := 30
 const ROUND_LIMIT := 12
-const HAND_LIMIT := 10
+
+# Sistema de reforços: o Baralho Militar está oculto e larga 1 reforço por
+# turno, até um máximo guardado. Guardar ou gastar é a decisão do jogador —
+# se a reserva estiver cheia, o reforço do turno seguinte perde-se.
+const MAX_REFORCOS := 3
+const REFORCO_POR_TURNO := 1
+const REFORCOS_INICIAIS := 3
+
+# A mão é uma só: Apoios + Táticas.
+const MAO_MAX := 5
 
 const FAMILY_A := ["ORDEM", "PUREZA"]
 const FAMILY_B := ["SELVA", "MAGIA"]
@@ -109,7 +119,8 @@ func _side_name(owner_id: String) -> String:
 # Inicialização
 # ---------------------------------------------------------------------------
 
-func init_game(player_deck: Array, ai_deck: Array, log_callback: Callable = Callable()) -> void:
+# Cada baralho é o dicionário que o DeckManager devolve: {militar, mao}.
+func init_game(player_deck: Dictionary, ai_deck: Dictionary, log_callback: Callable = Callable()) -> void:
 	_log_callback = log_callback
 	if abilities == null:
 		abilities = AbilityDispatcher.new()
@@ -121,38 +132,24 @@ func init_game(player_deck: Array, ai_deck: Array, log_callback: Callable = Call
 	winner = ""
 	combat_steps = []
 
-	var player_mil := _filter_military(player_deck)
-	var player_tac := _filter_tactical(player_deck)
-	var ai_mil := _filter_military(ai_deck)
-	var ai_tac := _filter_tactical(ai_deck)
+	var player_mil: Array = player_deck.get("militar", [])
+	var ai_mil: Array = ai_deck.get("militar", [])
 
 	players = {
-		"player": _make_player_state(player_mil, player_tac),
-		"ai": _make_player_state(ai_mil, ai_tac)
+		"player": _make_player_state(player_mil, player_deck.get("mao", [])),
+		"ai": _make_player_state(ai_mil, ai_deck.get("mao", []))
 	}
 
+	# O alinhamento e a coesão lêem-se do Baralho Militar: são as unidades que
+	# combatem, e é delas que vêm os bónus.
 	players["player"]["hasSombra"] = _deck_has_alignment(player_mil, "SOMBRA")
 	players["ai"]["hasSombra"] = _deck_has_alignment(ai_mil, "SOMBRA")
 	players["player"]["cohesionBroken"] = _compute_cohesion_broken(player_mil)
 	players["ai"]["cohesionBroken"] = _compute_cohesion_broken(ai_mil)
 
-	_draw_initial_hand("player")
-	_draw_initial_hand("ai")
+	_setup_start("player")
+	_setup_start("ai")
 	_run_turn_start_triggers()
-
-func _filter_military(deck: Array) -> Array:
-	var out := []
-	for c in deck:
-		if str(c.get("tipo_tatico", "")) == "":
-			out.append(c)
-	return out
-
-func _filter_tactical(deck: Array) -> Array:
-	var out := []
-	for c in deck:
-		if str(c.get("tipo_tatico", "")) != "":
-			out.append(c)
-	return out
 
 func _deck_has_alignment(deck: Array, alignment: String) -> bool:
 	for c in deck:
@@ -171,17 +168,17 @@ func _compute_cohesion_broken(deck: Array) -> bool:
 			has_b = true
 	return has_a and has_b
 
-func _make_player_state(military_deck: Array, tactical_deck: Array) -> Dictionary:
+func _make_player_state(military_deck: Array, hand_deck: Array) -> Dictionary:
 	return {
-		# Baralho militar
-		"deck": _shuffle(military_deck),
-		"hand": [],
+		# Baralho Militar — oculto, larga reforços
+		"militaryDeck": _shuffle(military_deck),
+		"reinforcements": [],
 		"graveyard": [],
 
-		# Baralho tático
-		"tacticoDeck": _shuffle(tactical_deck),
-		"tacticoHand": [],
-		"tacticoGraveyard": [],
+		# A única mão: Apoios + Táticas
+		"deck": _shuffle(hand_deck),
+		"hand": [],
+		"discard": [],
 
 		# Tabuleiro
 		"front": [null, null, null, null, null, null],
@@ -189,9 +186,6 @@ func _make_player_state(military_deck: Array, tactical_deck: Array) -> Dictionar
 		"activeTactics": [],
 
 		# Estado do turno
-		"unitPlaysThisRound": 0,
-		"extraUnitCap": 0,
-		"freeNextUnit": false,
 		"apoioDoubleNext": false,
 		"apoiosBlocked": false,
 		"apoiosBlockedNextRound": false,
@@ -427,68 +421,60 @@ func get_combat_mod_bonus(card: Dictionary, defender: Dictionary) -> int:
 # Compra de cartas
 # ---------------------------------------------------------------------------
 
-func draw_card(owner_id: String, n: int) -> void:
+# Enche a mão até MAO_MAX a partir do baralho de Apoios e Táticas.
+func refill_hand(owner_id: String) -> void:
 	var p: Dictionary = players[owner_id]
-	for i in range(n):
+	while (p["hand"] as Array).size() < MAO_MAX:
 		if (p["deck"] as Array).is_empty():
-			break
-		if (p["hand"] as Array).size() >= HAND_LIMIT:
 			break
 		p["hand"].append(p["deck"].pop_front())
 
-func _draw_initial_hand(owner_id: String) -> void:
+# Tira n unidades do topo do Baralho Militar para a reserva de reforços.
+# Devolve quantas entraram mesmo — a reserva tem tecto, e o que passa perde-se.
+func gain_reinforcement(owner_id: String, n: int = 1) -> int:
 	var p: Dictionary = players[owner_id]
-	var deck: Array = p["deck"]
-
-	var front_indices := []
-	for i in range(deck.size()):
-		if front_indices.size() >= 4:
+	var entraram := 0
+	for i in range(n):
+		if (p["reinforcements"] as Array).size() >= MAX_REFORCOS:
 			break
-		if FRONT_ROLES.has(str(deck[i].get("papel", ""))):
-			front_indices.append(i)
-
-	var back_indices := []
-	for i in range(deck.size()):
-		if back_indices.size() >= 2:
+		if (p["militaryDeck"] as Array).is_empty():
 			break
-		if front_indices.has(i):
-			continue
-		if BACK_ROLES.has(str(deck[i].get("papel", ""))):
-			back_indices.append(i)
+		p["reinforcements"].append(p["militaryDeck"].pop_front())
+		entraram += 1
+	return entraram
 
-	var selected := []
-	var remaining := []
-	for i in range(deck.size()):
-		if front_indices.has(i) or back_indices.has(i):
-			selected.append(deck[i])
-		else:
-			remaining.append(deck[i])
+# As habilidades com texto de "Energia" continuam a chamar isto. Deixou de
+# comprar cartas para a mão: agora chama reforços, que é o que faz sentido
+# com o Baralho Militar oculto.
+func draw_card(owner_id: String, n: int) -> void:
+	gain_reinforcement(owner_id, n)
 
-	p["hand"].append_array(selected)
-	p["deck"] = remaining
+func reinforcement_count(owner_id: String) -> int:
+	return (players[owner_id]["reinforcements"] as Array).size()
 
-	if (p["hand"] as Array).size() < 6:
-		draw_card(owner_id, 6 - (p["hand"] as Array).size())
+func reinforcements_full(owner_id: String) -> bool:
+	return reinforcement_count(owner_id) >= MAX_REFORCOS
 
-	# 5 cartas táticas iniciais
-	for i in range(5):
-		if (p["tacticoDeck"] as Array).is_empty():
-			break
-		p["tacticoHand"].append(p["tacticoDeck"].pop_front())
+func _setup_start(owner_id: String) -> void:
+	# Arranca com a reserva cheia — o jogador escolhe onde põe as três — e a
+	# mão completa.
+	gain_reinforcement(owner_id, REFORCOS_INICIAIS)
+	refill_hand(owner_id)
 
 # ---------------------------------------------------------------------------
 # Mutadores expostos às habilidades
 # ---------------------------------------------------------------------------
 
+# Deixou de haver limite de unidades por turno — a reserva é que manda. As
+# habilidades que davam mais margem passam a chamar reforços.
 func grant_extra_unit_cap(owner_id: String, n: int) -> void:
-	players[owner_id]["extraUnitCap"] += n
+	gain_reinforcement(owner_id, n)
 
 func grant_free_next_unit(owner_id: String) -> void:
-	players[owner_id]["freeNextUnit"] = true
+	gain_reinforcement(owner_id, 1)
 
 func get_unit_cap(owner_id: String) -> int:
-	var base_cap := 6 if current_round == 1 else BASE_UNIT_CAP
-	return base_cap + int(players[owner_id]["extraUnitCap"])
+	return reinforcement_count(owner_id)
 
 func heal_tower(owner_id: String, amount: int) -> void:
 	towers[owner_id] = min(TOWER_MAX, int(towers[owner_id]) + amount)
@@ -555,13 +541,37 @@ func block_apoios(owner_id: String) -> void:
 func force_rupture(card: Dictionary) -> void:
 	card["forcedRupture"] = true
 
+# AP-26: o último morto volta — agora à reserva de reforços, não à mão.
 func return_last_dead_to_hand(owner_id: String) -> void:
 	var p: Dictionary = players[owner_id]
 	var last = p["lastDeadCard"]
-	if last != null:
-		p["hand"].append(last)
-		p["lastDeadCard"] = null
-		_log("%s volta à mão." % last["nome"])
+	if last == null:
+		return
+	if (p["reinforcements"] as Array).size() >= MAX_REFORCOS:
+		_log("A reserva está cheia — %s não volta." % last["nome"])
+		return
+	# Volta como definição de carta, não como a instância gasta que morreu
+	p["reinforcements"].append({
+		"id": last.get("cardId", ""),
+		"nome": last.get("nome", ""),
+		"faccao_slug": last.get("faccao_slug", ""),
+		"subgrupo": last.get("subgrupo", ""),
+		"tipo": last.get("tipo", []),
+		"papel": last.get("papel", ""),
+		"alinhamento": last.get("alinhamento", ""),
+		"raridade": last.get("raridade", ""),
+		"custo": last.get("custo", 0),
+		"imagem": last.get("imagem", ""),
+		"habilidade_nome": last.get("habilidade_nome", ""),
+		"habilidade_texto": last.get("habilidade_texto", ""),
+		"lore": last.get("lore", ""),
+		"ataque": last.get("baseAtaque", 0),
+		"vida": last.get("baseVida", 1),
+		"escudo": 0,
+		"isApoio": false
+	})
+	p["lastDeadCard"] = null
+	_log("%s volta à reserva." % last["nome"])
 
 # ---------------------------------------------------------------------------
 # Instanciação
@@ -627,6 +637,8 @@ func _instantiate(card_def: Dictionary, owner_id: String) -> Dictionary:
 # Colocação de unidades
 # ---------------------------------------------------------------------------
 
+# A casa serve para este papel, está dentro do tabuleiro e está livre.
+# Deixou de haver limite por turno: o que trava é a reserva ter ou não cartas.
 func can_place_unit(owner_id: String, card_def: Dictionary, slot_type: String, slot_index: int) -> bool:
 	var p: Dictionary = players[owner_id]
 	var roles: Array = FRONT_ROLES if slot_type == "frente" else BACK_ROLES
@@ -637,37 +649,29 @@ func can_place_unit(owner_id: String, card_def: Dictionary, slot_type: String, s
 	if slot_index < 0 or slot_index >= FRONT_LANES:
 		return false
 	var arr: Array = p["front"] if slot_type == "frente" else p["back"]
-	if arr[slot_index] != null:
-		return false
-	if not p["freeNextUnit"] and int(p["unitPlaysThisRound"]) >= get_unit_cap(owner_id):
-		return false
-	return true
+	return arr[slot_index] == null
 
-func play_unit(owner_id: String, hand_index: int, slot_type: String, slot_index: int) -> Dictionary:
+# Põe em campo um reforço da reserva. Substitui o antigo play_unit.
+func place_reinforcement(owner_id: String, index: int, slot_type: String, slot_index: int) -> Dictionary:
 	if phase != "placement" or active_player != owner_id:
 		return {"ok": false, "error": "não é a tua vez"}
 	var p: Dictionary = players[owner_id]
-	if hand_index < 0 or hand_index >= (p["hand"] as Array).size():
-		return {"ok": false, "error": "carta inválida"}
-	var card_def: Dictionary = p["hand"][hand_index]
-	if card_def.get("isApoio", false):
-		return {"ok": false, "error": "carta inválida"}
+	var reserva: Array = p["reinforcements"]
+	if index < 0 or index >= reserva.size():
+		return {"ok": false, "error": "reforço inválido"}
+
+	var card_def: Dictionary = reserva[index]
 	if not can_place_unit(owner_id, card_def, slot_type, slot_index):
 		return {"ok": false, "error": "jogada inválida"}
 
-	p["hand"].remove_at(hand_index)
+	reserva.remove_at(index)
 	var card := _instantiate(card_def, owner_id)
 	card["slotType"] = slot_type
 	card["slotIndex"] = slot_index
 	var arr: Array = p["front"] if slot_type == "frente" else p["back"]
 	arr[slot_index] = card
 
-	if p["freeNextUnit"]:
-		p["freeNextUnit"] = false
-	else:
-		p["unitPlaysThisRound"] = int(p["unitPlaysThisRound"]) + 1
-
-	_log("%s colocaste %s." % [_side_name(owner_id), card["nome"]])
+	_log("%s chamaste %s ao corredor." % [_side_name(owner_id), card["nome"]])
 	_on_enter_lane_debuff_hooks(card)
 	_run_trigger(card, "onEnter")
 
@@ -686,20 +690,30 @@ func _on_enter_lane_debuff_hooks(new_card: Dictionary) -> void:
 			reduce_vida_maxima(new_card, int(def.get("amount", 1)))
 
 # ---------------------------------------------------------------------------
-# Apoios
+# Mão — Apoios e Táticas pela mesma porta
 # ---------------------------------------------------------------------------
 
-func play_apoio(owner_id: String, hand_index: int, target_spec: Dictionary = {}) -> Dictionary:
+# Uma carta da mão é ou Apoio ou Tática. Esta é a única porta de entrada;
+# play_apoio e play_tatico_card ficam como invólucros para quem já os chamava.
+func play_hand_card(owner_id: String, hand_index: int, target_spec: Dictionary = {}) -> Dictionary:
 	if phase != "placement" or active_player != owner_id:
 		return {"ok": false, "error": "não é a tua vez"}
 	var p: Dictionary = players[owner_id]
-	if p["apoiosBlocked"]:
-		return {"ok": false, "error": "apoios bloqueados este turno"}
 	if hand_index < 0 or hand_index >= (p["hand"] as Array).size():
 		return {"ok": false, "error": "carta inválida"}
+
 	var card_def: Dictionary = p["hand"][hand_index]
-	if not card_def.get("isApoio", false):
-		return {"ok": false, "error": "carta inválida"}
+	if card_def.get("isApoio", false):
+		return _resolve_apoio(owner_id, hand_index, card_def, target_spec)
+	return _resolve_tatico(owner_id, hand_index, card_def, target_spec)
+
+func play_apoio(owner_id: String, hand_index: int, target_spec: Dictionary = {}) -> Dictionary:
+	return play_hand_card(owner_id, hand_index, target_spec)
+
+func _resolve_apoio(owner_id: String, hand_index: int, card_def: Dictionary, target_spec: Dictionary) -> Dictionary:
+	var p: Dictionary = players[owner_id]
+	if p["apoiosBlocked"]:
+		return {"ok": false, "error": "apoios bloqueados este turno"}
 
 	var apoio_id := str(card_def.get("id", ""))
 	var def := abilities.get_apoio_ability(apoio_id)
@@ -719,12 +733,10 @@ func play_apoio(owner_id: String, hand_index: int, target_spec: Dictionary = {})
 	_current_apoio_mult = 1
 
 	# O Apoio resolve-se e sai para a zona de Apoio, onde fica visível.
-	# No web isto era feito fora do motor (ui-controller.js e ai-player.js
-	# punham lastApoio à mão depois de cada jogada); aqui fica no motor, para
-	# não haver forma de jogar um Apoio e esquecer de o registar.
 	p["lastApoio"] = card_def
+	p["discard"].append(card_def)
 
-	draw_card(owner_id, 1)
+	refill_hand(owner_id)
 	_log("%s jogaste o Apoio %s." % [_side_name(owner_id), card_def.get("nome", "")])
 	_check_auto_advance(owner_id)
 	return {"ok": true, "card": card_def}
@@ -733,13 +745,11 @@ func play_apoio(owner_id: String, hand_index: int, target_spec: Dictionary = {})
 # Cartas táticas
 # ---------------------------------------------------------------------------
 
-func play_tatico_card(owner_id: String, tactico_hand_index: int, target_spec: Dictionary = {}) -> Dictionary:
-	if phase != "placement" or active_player != owner_id:
-		return {"ok": false, "error": "não é a tua vez"}
+func play_tatico_card(owner_id: String, hand_index: int, target_spec: Dictionary = {}) -> Dictionary:
+	return play_hand_card(owner_id, hand_index, target_spec)
+
+func _resolve_tatico(owner_id: String, hand_index: int, card_def: Dictionary, target_spec: Dictionary) -> Dictionary:
 	var p: Dictionary = players[owner_id]
-	if tactico_hand_index < 0 or tactico_hand_index >= (p["tacticoHand"] as Array).size():
-		return {"ok": false, "error": "carta tática inválida"}
-	var card_def: Dictionary = p["tacticoHand"][tactico_hand_index]
 	var tipo := str(card_def.get("tipo_tatico", ""))
 
 	if tipo == "Equipamento":
@@ -749,7 +759,7 @@ func play_tatico_card(owner_id: String, tactico_hand_index: int, target_spec: Di
 		if target_card["ownerId"] != owner_id:
 			return {"ok": false, "error": "só podes equipar unidades amigas"}
 
-		p["tacticoHand"].remove_at(tactico_hand_index)
+		p["hand"].remove_at(hand_index)
 		target_card["equipamentos"].append(card_def)
 
 		var bonus_atk := int(card_def.get("bonus_ataque", 0))
@@ -762,12 +772,12 @@ func play_tatico_card(owner_id: String, tactico_hand_index: int, target_spec: Di
 			target_card["vidaAtual"] = int(target_card["vidaAtual"]) + bonus_vida
 
 		_log("%s equipaste %s em %s." % [_side_name(owner_id), card_def.get("nome", ""), target_card["nome"]])
-		_refill_tactico(owner_id)
+		refill_hand(owner_id)
 		_check_auto_advance(owner_id)
 		return {"ok": true, "card": card_def, "target": target_card}
 
-	p["tacticoHand"].remove_at(tactico_hand_index)
-	_refill_tactico(owner_id)
+	p["hand"].remove_at(hand_index)
+	refill_hand(owner_id)
 
 	# Magia, Consumível e Bênção aceitam alvo. Sem alvo, caem no primeiro da
 	# lista — que era o único comportamento no web.
@@ -785,7 +795,7 @@ func play_tatico_card(owner_id: String, tactico_hand_index: int, target_spec: Di
 					deal_damage(alvo, dano, null)
 					_log("%s lançaste %s em %s (%d de dano)." % [
 						_side_name(owner_id), card_def.get("nome", ""), alvo["nome"], dano])
-			p["tacticoGraveyard"].append(card_def)
+			p["discard"].append(card_def)
 		"Consumível":
 			var cura := int(card_def.get("cura", 0))
 			if cura > 0:
@@ -799,7 +809,7 @@ func play_tatico_card(owner_id: String, tactico_hand_index: int, target_spec: Di
 					_log("%s usaste %s em %s (+%d de Vida)." % [
 						_side_name(owner_id), card_def.get("nome", ""), alvo["nome"],
 						int(alvo["vidaAtual"]) - old_hp])
-			p["tacticoGraveyard"].append(card_def)
+			p["discard"].append(card_def)
 		"Construção":
 			var construct := card_def.duplicate(true)
 			var vida_c := int(card_def.get("vida_construcao", 8))
@@ -827,17 +837,12 @@ func play_tatico_card(owner_id: String, tactico_hand_index: int, target_spec: Di
 				add_atk_mod(alvo, 2)
 				_log("%s invocaste %s em %s (+2 de Ataque)." % [
 					_side_name(owner_id), card_def.get("nome", ""), alvo["nome"]])
-			p["tacticoGraveyard"].append(card_def)
+			p["discard"].append(card_def)
 		_:
 			_log("%s jogaste %s." % [_side_name(owner_id), card_def.get("nome", "")])
 
 	_check_auto_advance(owner_id)
 	return {"ok": true, "card": card_def}
-
-func _refill_tactico(owner_id: String) -> void:
-	var p: Dictionary = players[owner_id]
-	if not (p["tacticoDeck"] as Array).is_empty():
-		p["tacticoHand"].append(p["tacticoDeck"].pop_front())
 
 func remove_equipamento(card_uid: String, equip_idx: int) -> Dictionary:
 	var card = get_card(card_uid)
@@ -877,9 +882,7 @@ func pass_turn(owner_id: String) -> Dictionary:
 func _advance_priority(acted_owner_id: String) -> void:
 	var other := opponent_of(acted_owner_id)
 	var p: Dictionary = players[acted_owner_id]
-	if not p["freeNextUnit"] \
-		and int(p["unitPlaysThisRound"]) >= get_unit_cap(acted_owner_id) \
-		and not _has_playable_apoio(acted_owner_id):
+	if not _has_playable_unit(acted_owner_id) and not _has_playable_hand_card(acted_owner_id):
 		p["donePlacing"] = true
 	if players["player"]["donePlacing"] and players["ai"]["donePlacing"]:
 		_resolve_combat()
@@ -887,34 +890,41 @@ func _advance_priority(acted_owner_id: String) -> void:
 	active_player = acted_owner_id if players[other]["donePlacing"] else other
 
 func _check_auto_advance(owner_id: String) -> void:
-	# Jogar um Apoio/Tático não passa prioridade, mas se o jogador ficou sem
+	# Jogar uma carta da mão não passa prioridade, mas se o jogador ficou sem
 	# jogadas possíveis, marca-o como pronto.
 	var p: Dictionary = players[owner_id]
-	var has_apoio := _has_playable_apoio(owner_id)
-	var has_unit := _has_playable_unit(owner_id)
-	if not has_apoio and (p["freeNextUnit"] or int(p["unitPlaysThisRound"]) < get_unit_cap(owner_id)) and has_unit:
+	if _has_playable_hand_card(owner_id) or _has_playable_unit(owner_id):
 		return
-	if not has_apoio and not has_unit:
-		p["donePlacing"] = true
-		if players["player"]["donePlacing"] and players["ai"]["donePlacing"]:
-			_resolve_combat()
-			return
-		active_player = opponent_of(owner_id)
+	p["donePlacing"] = true
+	if players["player"]["donePlacing"] and players["ai"]["donePlacing"]:
+		_resolve_combat()
+		return
+	active_player = opponent_of(owner_id)
 
-func _has_playable_apoio(owner_id: String) -> bool:
+# Há alguma carta na mão que se possa jogar agora?
+func _has_playable_hand_card(owner_id: String) -> bool:
 	var p: Dictionary = players[owner_id]
-	if p["apoiosBlocked"]:
-		return false
 	for c in p["hand"]:
 		if c.get("isApoio", false):
-			return true
+			if not p["apoiosBlocked"]:
+				return true
+			continue
+		# Equipamento sem unidade amiga em campo não tem onde ir
+		if str(c.get("tipo_tatico", "")) == "Equipamento":
+			if not allies(owner_id).is_empty():
+				return true
+			continue
+		return true
 	return false
 
+# Mantido pelo nome antigo, mas agora olha para a reserva de reforços.
+func _has_playable_apoio(owner_id: String) -> bool:
+	return _has_playable_hand_card(owner_id)
+
+# Há algum reforço na reserva com casa livre para entrar?
 func _has_playable_unit(owner_id: String) -> bool:
 	var p: Dictionary = players[owner_id]
-	for c in p["hand"]:
-		if c.get("isApoio", false):
-			continue
+	for c in p["reinforcements"]:
 		for i in range(FRONT_LANES):
 			if can_place_unit(owner_id, c, "frente", i):
 				return true
@@ -967,7 +977,10 @@ func destroy_card(card, killer = null) -> void:
 	var def := abilities.get_unit_ability(str(card.get("habilidade_texto", "")))
 	if not def.is_empty() and str(def.get("trigger", "")) == "onDeath" and def.has("run"):
 		var result = def["run"].call(self, card, null, null)
-		if result == "revive":
+		# A habilidade "uma vez por partida volta com 1 de Vida" devolve false
+		# na segunda morte. Comparar bool com String é erro em GDScript, por
+		# isso confirma-se o tipo antes.
+		if typeof(result) == TYPE_STRING and str(result) == "revive":
 			p["graveyard"].erase(card)
 			p["lastDeadCard"] = null
 			card["vidaAtual"] = 1
@@ -1032,7 +1045,6 @@ func _run_turn_start_triggers() -> void:
 		var p: Dictionary = players[owner_id]
 		p["apoiosBlocked"] = p["apoiosBlockedNextRound"]
 		p["apoiosBlockedNextRound"] = false
-		p["unitPlaysThisRound"] = 0
 		p["donePlacing"] = false
 
 func _resolve_combat() -> void:
@@ -1201,8 +1213,15 @@ func _end_of_round() -> void:
 	current_round += 1
 	active_player = "ai" if current_round % 2 == 0 else "player"
 	phase = "placement"
-	draw_card("player", 1)
-	draw_card("ai", 1)
+
+	# O Baralho Militar larga o reforço do turno; se a reserva estiver cheia,
+	# perde-se. E a mão volta a encher-se.
+	for owner_id in ["player", "ai"]:
+		var ganhos := gain_reinforcement(owner_id, REFORCO_POR_TURNO)
+		if ganhos == 0 and reinforcements_full(owner_id):
+			_log("A reserva de %s está cheia — o reforço do turno perdeu-se." % _side_name(owner_id))
+		refill_hand(owner_id)
+
 	_run_turn_start_triggers()
 
 func _check_win() -> bool:

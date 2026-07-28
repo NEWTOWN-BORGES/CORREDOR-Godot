@@ -19,6 +19,10 @@ config/description="1v1 Tower Siege Card Game - Godot Version"
 run/main_scene="res://scenes/Game.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 
+[autoload]
+
+Cards="*res://scripts/CardLoader.gd"
+
 [display]
 
 window/size/viewport_width=1280

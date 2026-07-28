@@ -25,20 +25,16 @@ func _ready() -> void:
 	_render_game()
 	pass_button.pressed.connect(_on_pass)
 
+# As cartas vêm do autoload Cards (scripts/CardLoader.gd), que também serve
+# as texturas a pedido — ver Fase 2.
 func _load_cards() -> bool:
-	var path := "res://resources/cartas.json"
-	if not FileAccess.file_exists(path):
-		push_error("cartas.json não encontrado em %s" % path)
+	if not Cards.load_all():
 		return false
-	var parsed = JSON.parse_string(FileAccess.get_file_as_string(path))
-	if typeof(parsed) != TYPE_DICTIONARY:
-		push_error("cartas.json inválido")
-		return false
-	cartas = parsed
+	cartas = Cards.as_dictionary()
 	print("Carregadas %d unidades, %d apoios, %d táticos" % [
-		(cartas.get("unidades", []) as Array).size(),
-		(cartas.get("apoios", []) as Array).size(),
-		(cartas.get("taticos", []) as Array).size()
+		(cartas["unidades"] as Array).size(),
+		(cartas["apoios"] as Array).size(),
+		(cartas["taticos"] as Array).size()
 	])
 	return true
 

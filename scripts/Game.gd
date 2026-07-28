@@ -705,7 +705,8 @@ func play_apoio(owner_id: String, hand_index: int, target_spec: Dictionary = {})
 	_current_apoio_mult = 2 if p["apoioDoubleNext"] else 1
 	p["apoioDoubleNext"] = false
 
-	var needs := def.get("needsTarget")
+	# needsTarget é null ou String — sem tipo inferido, senão o Godot recusa
+	var needs = def.get("needsTarget")
 	if needs == "allyPair":
 		abilities.run_apoio(self, apoio_id, owner_id, target_spec.get("from"), target_spec.get("to"))
 	else:

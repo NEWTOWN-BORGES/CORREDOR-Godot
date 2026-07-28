@@ -1,8 +1,9 @@
-[gd_scene load_steps=5 format=3 uid="uid://d1kbdm2cy4xdpxy"]
+[gd_scene load_steps=6 format=3 uid="uid://d1kbdm2cy4xdpxy"]
 
 [ext_resource type="Script" path="res://scripts/UIController.gd" id="1_ui"]
 [ext_resource type="Shader" path="res://assets/shaders/background.gdshader" id="2_bg"]
 [ext_resource type="Script" path="res://scripts/BoardRenderer.gd" id="3_board"]
+[ext_resource type="Script" path="res://scripts/FxLayer.gd" id="4_fx"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_bg"]
 shader = ExtResource("2_bg")
@@ -97,6 +98,7 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
+script = ExtResource("4_fx")
 
 [node name="TargetBar" type="PanelContainer" parent="."]
 visible = false

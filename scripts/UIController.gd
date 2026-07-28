@@ -54,7 +54,7 @@ var _busy: bool = false
 @onready var target_prompt: Label = $TargetBar/Row/Prompt
 @onready var target_cancel: Button = $TargetBar/Row/CancelTarget
 
-@onready var fx_layer: Control = $FxLayer
+@onready var fx_layer: FxLayer = $FxLayer
 @onready var gameover_overlay: Control = $GameOverOverlay
 @onready var gameover_title: Label = $GameOverOverlay/Center/Card/Column/Title
 @onready var gameover_subtitle: Label = $GameOverOverlay/Center/Card/Column/Subtitle
@@ -88,8 +88,19 @@ func _load_cards() -> bool:
 
 func _setup_board() -> void:
 	board.slot_clicked.connect(_on_slot_clicked)
+	board.pulse_speed = animation_speed
+	fx_layer.speed = animation_speed
 	get_viewport().size_changed.connect(_update_orientation)
 	_update_orientation()
+
+# Os testes mexem em animation_speed depois do _ready; isto reparte o valor
+# pelos nós que também animam.
+func set_animation_speed(value: float) -> void:
+	animation_speed = value
+	if board != null:
+		board.pulse_speed = value
+	if fx_layer != null:
+		fx_layer.speed = value
 
 func _setup_overlays() -> void:
 	zoom_overlay.visible = false
@@ -253,6 +264,7 @@ func _sync_slot(owner_id: String, slot_type: String, lane: int, card) -> void:
 	vista.equipment_clicked.connect(_on_equipment_clicked)
 	holder.add_child(vista)
 	vista.bind(engine, card)
+	vista.play_enter_animation(animation_speed)
 
 func _render_hands() -> void:
 	for container in [tatico_container, hand_container]:
@@ -424,8 +436,29 @@ func _on_slot_clicked(owner_id: String, slot_type: String, lane: int) -> void:
 		return
 
 	var idx := _selected_hand_index
+	# Capturar antes de limpar a mão, senão a carta já não está lá para copiar
+	var viagem := _travel_rects(idx, owner_id, slot_type, lane)
 	_clear_targeting()
+	await _fly_card(card_def, viagem)
 	await _run_action(func(): return engine.play_unit("player", idx, slot_type, lane))
+
+# De onde para onde a carta voa: da posição dela na mão até à casa escolhida.
+func _travel_rects(hand_index: int, owner_id: String, slot_type: String, lane: int) -> Dictionary:
+	if hand_index < 0 or hand_index >= hand_container.get_child_count():
+		return {}
+	var origem: Control = hand_container.get_child(hand_index)
+	var destino := board.slot_control(owner_id, slot_type, lane)
+	if origem == null or destino == null:
+		return {}
+	return {
+		"de": Rect2(origem.global_position, origem.size),
+		"para": Rect2(destino.global_position, destino.size)
+	}
+
+func _fly_card(card_def: Dictionary, viagem: Dictionary) -> void:
+	if viagem.is_empty() or animation_speed <= 0.0:
+		return
+	await fx_layer.travel_card(Cards.texture_for(card_def), viagem["de"], viagem["para"])
 
 # ---------------------------------------------------------------- apoios
 
@@ -482,7 +515,12 @@ func _find_card_view(uid: String) -> CardView:
 	return null
 
 func _play_apoio(idx: int, spec: Dictionary) -> void:
+	# O Apoio voa da mão para a zona de Apoio, onde se resolve e fica
+	var card_def: Dictionary = engine.players["player"]["hand"][idx] if idx < (engine.players["player"]["hand"] as Array).size() else {}
+	var viagem := _travel_rects(idx, "player", "retaguarda", 0)
 	_clear_targeting()
+	if not card_def.is_empty():
+		await _fly_card(card_def, viagem)
 	await _run_action(func(): return engine.play_apoio("player", idx, spec))
 
 # ---------------------------------------------------------------- táticas
@@ -639,12 +677,18 @@ func _animate_attack(step: Dictionary) -> void:
 	if atacante == null or alvo == null:
 		return
 
-	await _lunge(atacante, alvo.global_position + alvo.size * 0.5)
-	_show_damage(alvo, int(step.get("amount", 0)))
+	var centro_alvo := alvo.global_position + alvo.size * 0.5
+	fx_layer.attack_trail(atacante.global_position + atacante.size * 0.5, centro_alvo)
+	await _lunge(atacante, centro_alvo)
+
+	fx_layer.float_number(alvo.global_position + Vector2(alvo.size.x * 0.5, alvo.size.y * 0.25),
+		"-%d" % int(step.get("amount", 0)), "dano")
+	_shake(alvo)
 	await _wait(T_HIT)
 
 	# Se o motor já a tirou do tabuleiro, mostra-a a morrer antes de sumir
 	if engine.get_card(str(step.get("target", ""))) == null:
+		fx_layer.skull_pop(centro_alvo)
 		await _animate_death(alvo)
 
 func _animate_siege(step: Dictionary) -> void:
@@ -653,12 +697,25 @@ func _animate_siege(step: Dictionary) -> void:
 	var barra: Control = board._tower_bars.get(dono)
 
 	if atacante != null and barra != null:
-		await _lunge(atacante, barra.global_position + barra.size * 0.5)
+		var centro_torre := barra.global_position + barra.size * 0.5
+		fx_layer.attack_trail(atacante.global_position + atacante.size * 0.5, centro_torre)
+		await _lunge(atacante, centro_torre)
 
 	board.set_tower(dono, int(step.get("towerAfter", 0)))
 	if barra != null:
+		fx_layer.float_number(barra.global_position + barra.size * 0.5,
+			"-%d" % int(step.get("amount", 0)), "dano")
 		_flash(barra)
 	await _wait(T_SIEGE)
+
+# Sacudidela de quem leva o golpe (.slot.attack-target no web).
+func _shake(vista: CardView) -> void:
+	if animation_speed <= 0.0:
+		return
+	var origem := vista.position
+	var tw := create_tween()
+	for deslocamento in [6.0, -5.0, 3.0, 0.0]:
+		tw.tween_property(vista, "position", origem + Vector2(deslocamento, 0), 0.08 / animation_speed)
 
 # A carta avança 65% do caminho até ao alvo e volta, como no web.
 func _lunge(vista: CardView, destino_global: Vector2) -> void:
@@ -686,27 +743,6 @@ func _animate_death(vista: CardView) -> void:
 	tw.tween_property(vista, "modulate", Color(0.35, 0.35, 0.35, 0.0), T_DEATH / animation_speed)
 	tw.parallel().tween_property(vista, "scale", Vector2(0.6, 0.6), T_DEATH / animation_speed)
 	await tw.finished
-
-# Número de dano a subir e a desvanecer sobre a carta atingida.
-func _show_damage(vista: CardView, amount: int) -> void:
-	if animation_speed <= 0.0:
-		return
-	var label := Label.new()
-	label.text = "-%d" % amount
-	label.add_theme_font_size_override("font_size", 22)
-	label.add_theme_color_override("font_color", Palette.EMBER_400)
-	label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
-	label.add_theme_constant_override("shadow_offset_y", 2)
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	fx_layer.add_child(label)
-
-	var centro := vista.global_position + Vector2(vista.size.x * 0.5, 0)
-	label.global_position = centro - fx_layer.global_position
-
-	var tw := create_tween()
-	tw.tween_property(label, "position", label.position + Vector2(0, -34), 1.1 / animation_speed)
-	tw.parallel().tween_property(label, "modulate", Color(1, 1, 1, 0), 1.1 / animation_speed)
-	tw.tween_callback(label.queue_free)
 
 func _flash(alvo: Control) -> void:
 	if animation_speed <= 0.0:

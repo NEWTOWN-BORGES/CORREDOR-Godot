@@ -23,7 +23,7 @@ func _run_tests() -> void:
 	Session.set_match("reinos", "coro")
 	game = load("res://scenes/Game.tscn").instantiate()
 	add_child(game)
-	game.animation_speed = 0.0
+	game.set_animation_speed(0.0)
 	# Sem adversário automático: estes testes medem o resultado do combate, e
 	# a IA a jogar no turno seguinte alterava o tabuleiro antes da medição
 	# (chegou a curar a carta que o teste ia inspeccionar). Quem testa a IA

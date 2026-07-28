@@ -26,6 +26,11 @@ func _run_tests() -> void:
 	add_child(game)
 	board = game.get_node("VBoxContainer/BoardArea/Board")
 
+	# Desde a Fase 9 as barras das Torres descem animadas e as casas válidas
+	# pulsam. A zero, vão directas ao valor final e não fica nenhum ciclo
+	# infinito a correr durante os testes.
+	game.set_animation_speed(0.0)
+
 	# Fixa o tamanho para as contas de percentagem serem verificáveis
 	board.set_portrait(false)
 	board.size = BOARD_SIZE

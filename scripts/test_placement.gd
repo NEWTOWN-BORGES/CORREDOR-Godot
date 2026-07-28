@@ -26,7 +26,7 @@ func _run_tests() -> void:
 	add_child(game)
 	# Desde a Fase 7 as jogadas passam por _run_action, que é assíncrono.
 	# Sem isto ficavam acções pendentes a resumir a meio do teste seguinte.
-	game.animation_speed = 0.0
+	game.set_animation_speed(0.0)
 	engine = game.engine
 	board = game.get_node("VBoxContainer/BoardArea/Board")
 	await tree.process_frame

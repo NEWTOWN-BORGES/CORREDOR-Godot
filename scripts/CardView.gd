@@ -55,6 +55,18 @@ func _ready() -> void:
 	if not card.is_empty():
 		refresh()
 
+# A carta entra a crescer e a aparecer (.card-el.entering do web).
+func play_enter_animation(speed: float = 1.0) -> void:
+	if speed <= 0.0:
+		return
+	pivot_offset = size * 0.5
+	scale = Vector2(0.4, 0.4)
+	modulate = Color(1, 1, 1, 0)
+	var tw := create_tween()
+	tw.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+	tw.tween_property(self, "scale", Vector2.ONE, 0.35 / speed)
+	tw.parallel().tween_property(self, "modulate", Color(1, 1, 1, 1), 0.35 / speed)
+
 # ---------------------------------------------------------------- construção
 
 func _build() -> void:

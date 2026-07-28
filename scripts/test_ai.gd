@@ -26,7 +26,7 @@ func _run_tests() -> void:
 	Session.set_match("reinos", "coro")
 	game = load("res://scenes/Game.tscn").instantiate()
 	add_child(game)
-	game.animation_speed = 0.0
+	game.set_animation_speed(0.0)
 	engine = game.engine
 	ai = AIPlayer.new("ai")
 	await tree.process_frame

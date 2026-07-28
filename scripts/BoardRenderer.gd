@@ -24,6 +24,12 @@ var _art: TextureRect = null
 var _overlay: Control = null
 var _ruined: bool = false
 
+# Posto a 0 pelos testes, para as barras irem directas ao valor final e as
+# casas não ficarem com um pulsar infinito a correr.
+var pulse_speed: float = 1.0
+var _tower_tweens: Dictionary = {}
+var _low_tweens: Dictionary = {}
+
 func _ready() -> void:
 	_build()
 	resized.connect(_relayout)
@@ -257,26 +263,85 @@ func card_holder(owner_id: String, slot_type: String, lane: int) -> Control:
 
 func highlight_slot(owner_id: String, slot_type: String, lane: int, on: bool) -> void:
 	var slot := slot_control(owner_id, slot_type, lane)
-	if slot != null:
-		slot.add_theme_stylebox_override("panel", _slot_style(on))
+	if slot == null:
+		return
+	slot.add_theme_stylebox_override("panel", _slot_style(on))
+	_set_slot_pulse(slot, on)
 
 func clear_highlights() -> void:
 	for slot in _slots.values():
-		(slot as Control).add_theme_stylebox_override("panel", _slot_style(false))
+		var s := slot as Control
+		s.add_theme_stylebox_override("panel", _slot_style(false))
+		_set_slot_pulse(s, false)
+
+# As casas válidas pulsam devagar (.slot.valid-target no web).
+func _set_slot_pulse(slot: Control, on: bool) -> void:
+	# has_meta antes de get_meta: no Godot 4.7 o get_meta com valor por
+	# omissão continua a dar erro se a chave nunca foi criada.
+	if slot.has_meta("pulse_tween"):
+		var anterior = slot.get_meta("pulse_tween")
+		if anterior != null and is_instance_valid(anterior):
+			(anterior as Tween).kill()
+		slot.remove_meta("pulse_tween")
+	slot.modulate = Color(1, 1, 1, 1)
+
+	if not on or pulse_speed <= 0.0:
+		return
+
+	var tw := create_tween().set_loops()
+	var meio := 0.55 / pulse_speed
+	tw.tween_property(slot, "modulate", Color(1.35, 1.2, 1.0, 1), meio) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tw.tween_property(slot, "modulate", Color(1, 1, 1, 1), meio) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	slot.set_meta("pulse_tween", tw)
 
 # Espelha setTower() do web: fracção da barra, estado "low" abaixo de 25%.
+# A barra desce animada (no web era uma transition de 0.6s).
 func set_tower(owner_id: String, hp: int) -> void:
 	var seguro: int = max(0, hp)
 	var frac := float(seguro) / float(TOWER_MAX)
+	var baixa := frac <= BoardGeometry.RUINED_THRESHOLD
 
 	var fill: ColorRect = _tower_fills.get(owner_id)
 	if fill != null:
-		fill.anchor_right = frac
-		fill.color = Color("c23a1e") if frac <= BoardGeometry.RUINED_THRESHOLD else Palette.EMBER_500
+		var cor := Color("c23a1e") if baixa else Palette.EMBER_500
+
+		var anterior = _tower_tweens.get(owner_id)
+		if anterior != null and is_instance_valid(anterior):
+			(anterior as Tween).kill()
+
+		if pulse_speed <= 0.0:
+			fill.anchor_right = frac
+			fill.color = cor
+		else:
+			var tw := create_tween()
+			tw.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+			tw.tween_property(fill, "anchor_right", frac, 0.6 / pulse_speed)
+			tw.parallel().tween_property(fill, "color", cor, 0.3 / pulse_speed)
+			_tower_tweens[owner_id] = tw
+
+		_set_low_pulse(owner_id, fill, baixa)
 
 	var label: Label = _tower_labels.get(owner_id)
 	if label != null:
 		label.text = "%d/%d" % [seguro, TOWER_MAX]
+
+# Torre em perigo lateja (.tower-fill.low no web).
+func _set_low_pulse(owner_id: String, fill: ColorRect, on: bool) -> void:
+	var anterior = _low_tweens.get(owner_id)
+	if anterior != null and is_instance_valid(anterior):
+		(anterior as Tween).kill()
+	_low_tweens.erase(owner_id)
+	fill.modulate = Color(1, 1, 1, 1)
+
+	if not on or pulse_speed <= 0.0:
+		return
+
+	var tw := create_tween().set_loops()
+	tw.tween_property(fill, "modulate", Color(1.5, 1.5, 1.5, 1), 0.5 / pulse_speed)
+	tw.tween_property(fill, "modulate", Color(1, 1, 1, 1), 0.5 / pulse_speed)
+	_low_tweens[owner_id] = tw
 
 # O tabuleiro fica arruinado quando qualquer das torres desce a 25% ou menos.
 func update_board_art(player_hp: int, ai_hp: int) -> void:

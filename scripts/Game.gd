@@ -193,6 +193,7 @@ func _make_player_state(military_deck: Array, tactical_deck: Array) -> Dictionar
 		"apoiosBlockedNextRound": false,
 		"donePlacing": false,
 		"lastDeadCard": null,
+		"lastApoio": null,
 		"flags": {},
 
 		"hasSombra": false,
@@ -712,6 +713,11 @@ func play_apoio(owner_id: String, hand_index: int, target_spec: Dictionary = {})
 	else:
 		abilities.run_apoio(self, apoio_id, owner_id, target_spec.get("target"), target_spec.get("extra"))
 	_current_apoio_mult = 1
+
+	# O Apoio resolve-se e sai para a zona de Apoio, onde fica visível.
+	# No web isto estava por ligar: renderApoioEdges() lia players[x].lastApoio,
+	# mas o motor nunca o preenchia, por isso a zona ficava sempre vazia.
+	p["lastApoio"] = card_def
 
 	draw_card(owner_id, 1)
 	_log("%s jogaste o Apoio %s." % [_side_name(owner_id), card_def.get("nome", "")])

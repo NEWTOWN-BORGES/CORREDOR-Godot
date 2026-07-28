@@ -88,3 +88,82 @@ theme_override_constants/separation = 6
 custom_minimum_size = Vector2(0, 42)
 layout_mode = 2
 text = "Passar"
+
+[node name="TargetBar" type="PanelContainer" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -220.0
+offset_top = 8.0
+offset_right = 220.0
+offset_bottom = 52.0
+grow_horizontal = 2
+
+[node name="Row" type="HBoxContainer" parent="TargetBar"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Prompt" type="Label" parent="TargetBar/Row"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 1
+text = "Escolhe um alvo"
+vertical_alignment = 1
+
+[node name="CancelTarget" type="Button" parent="TargetBar/Row"]
+layout_mode = 2
+text = "Cancelar"
+
+[node name="ZoomOverlay" type="Control" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Backdrop" type="ColorRect" parent="ZoomOverlay"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.78)
+
+[node name="Center" type="CenterContainer" parent="ZoomOverlay"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Column" type="VBoxContainer" parent="ZoomOverlay/Center"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="ZoomCard" type="TextureRect" parent="ZoomOverlay/Center/Column"]
+custom_minimum_size = Vector2(300, 420)
+layout_mode = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Actions" type="HBoxContainer" parent="ZoomOverlay/Center/Column"]
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 14
+
+[node name="ZoomPlay" type="Button" parent="ZoomOverlay/Center/Column/Actions"]
+custom_minimum_size = Vector2(130, 44)
+layout_mode = 2
+text = "Jogar"
+
+[node name="ZoomCancel" type="Button" parent="ZoomOverlay/Center/Column/Actions"]
+custom_minimum_size = Vector2(130, 44)
+layout_mode = 2
+text = "Cancelar"

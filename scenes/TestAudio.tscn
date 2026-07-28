@@ -1,4 +1,4 @@
-[gd_scene load_steps=2 format=3 uid="uid://i1testaudiocorredor"]
+[gd_scene format=3 uid="uid://dccfg163yq2in"]
 
 [ext_resource type="Script" path="res://scripts/test_audio.gd" id="1_test"]
 

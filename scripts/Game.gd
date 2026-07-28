@@ -719,8 +719,9 @@ func play_apoio(owner_id: String, hand_index: int, target_spec: Dictionary = {})
 	_current_apoio_mult = 1
 
 	# O Apoio resolve-se e sai para a zona de Apoio, onde fica visível.
-	# No web isto estava por ligar: renderApoioEdges() lia players[x].lastApoio,
-	# mas o motor nunca o preenchia, por isso a zona ficava sempre vazia.
+	# No web isto era feito fora do motor (ui-controller.js e ai-player.js
+	# punham lastApoio à mão depois de cada jogada); aqui fica no motor, para
+	# não haver forma de jogar um Apoio e esquecer de o registar.
 	p["lastApoio"] = card_def
 
 	draw_card(owner_id, 1)

@@ -26,6 +26,7 @@ const T_AI_THINK := 0.50
 var animation_speed: float = 1.0
 
 var engine: Game = null
+var ai: AIPlayer = null
 var cartas: Dictionary = {}
 var log_lines: Array = []
 
@@ -124,6 +125,7 @@ func _start_game() -> void:
 	var player_deck := DeckManager.build_faction_deck(cartas, player_slug)
 	var ai_deck := DeckManager.build_faction_deck(cartas, ai_slug)
 	engine.init_game(player_deck, ai_deck, _on_engine_log)
+	ai = AIPlayer.new("ai")
 
 func _on_engine_log(msg: String) -> void:
 	log_lines.append(msg)
@@ -742,15 +744,21 @@ func _on_restart() -> void:
 
 # ---------------------------------------------------------------- adversário
 
-# A IA a sério chega na Fase 8; por agora passa, para o turno poder avançar.
+# A IA joga uma acção de cada vez, para se ver o que ela fez em vez de o
+# turno inteiro aparecer feito.
 func _maybe_advance_ai() -> void:
-	while engine.phase == "placement" and engine.active_player == "ai":
+	var guard := 0
+	while engine.phase == "placement" and engine.active_player == "ai" and guard < 60:
+		guard += 1
 		_busy = true
 		_render_hud()
 		await _wait(T_AI_THINK)
 
 		var combates_antes: int = engine.combat_counter
-		engine.pass_turn("ai")
+		if ai != null:
+			ai.step(engine)
+		else:
+			engine.pass_turn("ai")
 
 		if engine.combat_counter != combates_antes and not engine.combat_steps.is_empty():
 			await _animate_combat(engine.combat_steps)

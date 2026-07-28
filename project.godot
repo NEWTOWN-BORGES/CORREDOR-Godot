@@ -16,12 +16,13 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 config/name="CORREDOR - TCG"
 config/description="1v1 Tower Siege Card Game - Godot Version"
-run/main_scene="res://scenes/Game.tscn"
+run/main_scene="res://scenes/MainMenu.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 
 [autoload]
 
 Cards="*res://scripts/CardLoader.gd"
+Session="*res://scripts/Session.gd"
 
 [display]
 

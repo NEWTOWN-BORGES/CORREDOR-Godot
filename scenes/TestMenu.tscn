@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://c8testmenucorredor"]
+
+[ext_resource type="Script" path="res://scripts/test_menu.gd" id="1_test"]
+
+[node name="TestMenu" type="Node"]
+script = ExtResource("1_test")

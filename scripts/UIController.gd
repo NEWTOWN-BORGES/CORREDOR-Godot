@@ -4,8 +4,9 @@ extends Control
 # por MenuController + BoardRenderer + HandRenderer). Serve para validar que
 # o motor arranca, distribui mão e aceita jogadas.
 
-const PLAYER_FACTION := "reinos"
-const AI_FACTION := "coro"
+# Usadas só se a cena for aberta directamente, sem passar pelo menu.
+const FALLBACK_PLAYER_FACTION := "reinos"
+const FALLBACK_AI_FACTION := "coro"
 
 var engine: Game = null
 var cartas: Dictionary = {}
@@ -39,8 +40,15 @@ func _load_cards() -> bool:
 	return true
 
 func _start_game() -> void:
-	var player_deck := DeckManager.build_faction_deck(cartas, PLAYER_FACTION)
-	var ai_deck := DeckManager.build_faction_deck(cartas, AI_FACTION)
+	var player_slug := FALLBACK_PLAYER_FACTION
+	var ai_slug := FALLBACK_AI_FACTION
+	if Session.has_match():
+		player_slug = Session.player_faction
+		ai_slug = Session.ai_faction
+
+	print("Partida: %s contra %s" % [player_slug, ai_slug])
+	var player_deck := DeckManager.build_faction_deck(cartas, player_slug)
+	var ai_deck := DeckManager.build_faction_deck(cartas, ai_slug)
 	engine.init_game(player_deck, ai_deck, _on_engine_log)
 
 func _on_engine_log(msg: String) -> void:

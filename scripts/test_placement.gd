@@ -24,6 +24,9 @@ func _run_tests() -> void:
 	Session.set_match("reinos", "coro")
 	game = load("res://scenes/Game.tscn").instantiate()
 	add_child(game)
+	# Desde a Fase 7 as jogadas passam por _run_action, que é assíncrono.
+	# Sem isto ficavam acções pendentes a resumir a meio do teste seguinte.
+	game.animation_speed = 0.0
 	engine = game.engine
 	board = game.get_node("VBoxContainer/BoardArea/Board")
 	await tree.process_frame
@@ -31,15 +34,15 @@ func _run_tests() -> void:
 	test_zoom_opens_and_closes()
 	test_play_button_hidden_when_unplayable()
 	test_valid_slots_highlighted()
-	test_slot_click_places_card()
-	test_wrong_slot_rejected()
-	test_enemy_slots_ignored()
+	await test_slot_click_places_card()
+	await test_wrong_slot_rejected()
+	await test_enemy_slots_ignored()
 	test_clicking_same_card_cancels()
-	test_apoio_without_target_plays_now()
-	test_apoio_with_target_enters_targeting()
-	test_apoio_pair_two_steps()
-	test_equipment_targeting()
-	test_apoio_zone_shows_last()
+	await test_apoio_without_target_plays_now()
+	await test_apoio_with_target_enters_targeting()
+	await test_apoio_pair_two_steps()
+	await test_equipment_targeting()
+	await test_apoio_zone_shows_last()
 	test_board_card_readonly_zoom()
 
 	print("\n--- %d passaram, %d falharam ---\n" % [_passed, _failed])
@@ -159,7 +162,7 @@ func test_valid_slots_highlighted() -> void:
 	set_hand([atirador])
 	game._render_hands()
 
-	game._commit_hand_selection(0, atirador)
+	await game._commit_hand_selection(0, atirador)
 	check_eq(game._selected_hand_index, 0, "carta ficou escolhida")
 
 	# ATIRADOR é de retaguarda: só as colunas 1-4 acendem
@@ -181,8 +184,8 @@ func test_slot_click_places_card() -> void:
 	set_hand([guerreiro])
 	game._render_hands()
 
-	game._commit_hand_selection(0, guerreiro)
-	game._on_slot_clicked("player", "frente", 3)
+	await game._commit_hand_selection(0, guerreiro)
+	await game._on_slot_clicked("player", "frente", 3)
 
 	var colocada = engine.players["player"]["front"][3]
 	check(colocada != null, "carta entrou na casa 3")
@@ -198,20 +201,20 @@ func test_wrong_slot_rejected() -> void:
 	var atirador := unit("Arqueiro", "ATIRADOR")
 	set_hand([atirador])
 	game._render_hands()
-	game._commit_hand_selection(0, atirador)
+	await game._commit_hand_selection(0, atirador)
 
 	# ATIRADOR não pode ir para a frente
-	game._on_slot_clicked("player", "frente", 0)
+	await game._on_slot_clicked("player", "frente", 0)
 	check(engine.players["player"]["front"][0] == null, "atirador não entra na frente")
 	check_eq((engine.players["player"]["hand"] as Array).size(), 1, "continua na mão")
 
 	# nem para as pontas de Apoio
-	game._on_slot_clicked("player", "retaguarda", 0)
+	await game._on_slot_clicked("player", "retaguarda", 0)
 	check(engine.players["player"]["back"][0] == null, "não entra na ponta de Apoio")
 	check_eq((engine.players["player"]["hand"] as Array).size(), 1, "continua na mão")
 
 	# mas entra numa coluna de combate
-	game._on_slot_clicked("player", "retaguarda", 2)
+	await game._on_slot_clicked("player", "retaguarda", 2)
 	check(engine.players["player"]["back"][2] != null, "entra na retaguarda 2")
 
 func test_enemy_slots_ignored() -> void:
@@ -220,9 +223,9 @@ func test_enemy_slots_ignored() -> void:
 	var guerreiro := unit("Recruta", "GUERREIRO")
 	set_hand([guerreiro])
 	game._render_hands()
-	game._commit_hand_selection(0, guerreiro)
+	await game._commit_hand_selection(0, guerreiro)
 
-	game._on_slot_clicked("ai", "frente", 2)
+	await game._on_slot_clicked("ai", "frente", 2)
 	check(engine.players["ai"]["front"][2] == null, "nada entrou no lado do adversário")
 	check_eq((engine.players["player"]["hand"] as Array).size(), 1, "carta continua na mão")
 
@@ -233,7 +236,7 @@ func test_clicking_same_card_cancels() -> void:
 	set_hand([guerreiro])
 	game._render_hands()
 
-	game._commit_hand_selection(0, guerreiro)
+	await game._commit_hand_selection(0, guerreiro)
 	check_eq(game._selected_hand_index, 0, "escolhida")
 
 	game._on_hand_card_click(0)
@@ -248,7 +251,7 @@ func test_apoio_without_target_plays_now() -> void:
 	game._render_hands()
 
 	check(not engine.players["player"]["apoioDoubleNext"], "ainda não dobrou")
-	game._commit_hand_selection(0, engine.players["player"]["hand"][0])
+	await game._commit_hand_selection(0, engine.players["player"]["hand"][0])
 
 	check(engine.players["player"]["apoioDoubleNext"], "efeito aplicado logo")
 	check(not game.target_bar.visible, "não pediu alvo")
@@ -262,7 +265,7 @@ func test_apoio_with_target_enters_targeting() -> void:
 	set_hand([apoio("AP-01", "Muralha")])
 	game._render_game()
 
-	game._commit_hand_selection(0, engine.players["player"]["hand"][0])
+	await game._commit_hand_selection(0, engine.players["player"]["hand"][0])
 	check(game.target_bar.visible, "barra de alvo apareceu")
 	check(str(game.target_prompt.text).contains("carta tua"), "pede uma carta tua")
 	check(game.is_targeting(), "está em modo de escolha")
@@ -270,12 +273,12 @@ func test_apoio_with_target_enters_targeting() -> void:
 	# Clicar numa carta inimiga não faz nada
 	var inimigo := place("ai", unit("Inimigo", "GUERREIRO"), "frente", 1)
 	game._render_game()
-	game._on_board_card_clicked(inimigo)
+	await game._on_board_card_clicked(inimigo)
 	check(game.is_targeting(), "carta inimiga não serve para Apoio de aliado")
 	check_eq(int(alvo["escudoAtual"]), 0, "e nada foi aplicado")
 
 	# Clicar na carta certa resolve
-	game._on_board_card_clicked(alvo)
+	await game._on_board_card_clicked(alvo)
 	check_eq(int(alvo["escudoAtual"]), 3, "aliado ganhou 3 de escudo")
 	check(not game.is_targeting(), "saiu do modo de escolha")
 	check(not game.target_bar.visible, "barra desapareceu")
@@ -290,19 +293,19 @@ func test_apoio_pair_two_steps() -> void:
 	set_hand([apoio("AP-17", "Transfusão")])
 	game._render_game()
 
-	game._commit_hand_selection(0, engine.players["player"]["hand"][0])
+	await game._commit_hand_selection(0, engine.players["player"]["hand"][0])
 	check(str(game.target_prompt.text).contains("origem"), "primeiro pede a origem")
 
-	game._on_board_card_clicked(origem)
+	await game._on_board_card_clicked(origem)
 	check(game.is_targeting(), "continua em modo de escolha")
 	check(str(game.target_prompt.text).contains("recebe"), "agora pede quem recebe")
 
 	# Clicar na mesma carta não vale como destino
-	game._on_board_card_clicked(origem)
+	await game._on_board_card_clicked(origem)
 	check(game.is_targeting(), "origem não pode ser também destino")
 
 	var vida_destino_antes := int(destino["vidaAtual"])
-	game._on_board_card_clicked(destino)
+	await game._on_board_card_clicked(destino)
 	check(not game.is_targeting(), "par completo, Apoio resolvido")
 	check(int(destino["vidaAtual"]) > vida_destino_antes, "destino recebeu vida")
 
@@ -320,17 +323,17 @@ func test_equipment_targeting() -> void:
 	game._render_hands()
 
 	var atk_antes := engine.get_effective_ataque(alvo)
-	game._play_tactico(0, equipamento)
+	await game._play_tactico(0, equipamento)
 	check(game.target_bar.visible, "pede alvo para equipar")
 	check(str(game.target_prompt.text).contains("Espada de Ferro"), "diz qual é o equipamento")
 
 	# Unidade inimiga não pode ser equipada
 	var inimigo := place("ai", unit("Inimigo", "GUERREIRO"), "frente", 2)
 	game._render_game()
-	game._on_board_card_clicked(inimigo)
+	await game._on_board_card_clicked(inimigo)
 	check(game.is_targeting(), "não deixa equipar unidade inimiga")
 
-	game._on_board_card_clicked(alvo)
+	await game._on_board_card_clicked(alvo)
 	check(not game.is_targeting(), "equipado")
 	check_eq((alvo["equipamentos"] as Array).size(), 1, "equipamento pendurado na carta")
 	check_eq(engine.get_effective_ataque(alvo), atk_antes + 2, "ataque subiu 2")
@@ -349,7 +352,7 @@ func test_apoio_zone_shows_last() -> void:
 	check_eq(holder.get_child_count(), 0, "começa vazia")
 
 	# AP-09 cura todos os aliados, não pede alvo
-	game._commit_hand_selection(0, engine.players["player"]["hand"][0])
+	await game._commit_hand_selection(0, engine.players["player"]["hand"][0])
 	game._render_game()
 
 	check(engine.players["player"]["lastApoio"] != null, "motor guardou o último Apoio")
@@ -369,7 +372,7 @@ func test_board_card_readonly_zoom() -> void:
 	game._render_game()
 
 	check(not game.is_targeting(), "não está em modo de escolha")
-	game._on_board_card_clicked(carta)
+	await game._on_board_card_clicked(carta)
 	check(game.zoom_overlay.visible, "abriu a ampliação")
 	check(not game.zoom_actions.visible, "sem botão de jogar — é só para ler")
 	game._close_zoom()

@@ -13,6 +13,17 @@ extends Control
 # Usadas só se a cena for aberta directamente, sem passar pelo menu.
 const FALLBACK_PLAYER_FACTION := "reinos"
 const FALLBACK_AI_FACTION := "coro"
+const MENU_SCENE := "res://scenes/MainMenu.tscn"
+
+# Tempos das animações de combate, iguais aos do web (em segundos).
+const T_LUNGE := 0.55
+const T_HIT := 0.35
+const T_DEATH := 0.45
+const T_SIEGE := 0.50
+const T_AI_THINK := 0.50
+
+# Os testes põem isto a 0 para não esperarem por animações.
+var animation_speed: float = 1.0
 
 var engine: Game = null
 var cartas: Dictionary = {}
@@ -41,6 +52,14 @@ var _busy: bool = false
 @onready var target_bar: PanelContainer = $TargetBar
 @onready var target_prompt: Label = $TargetBar/Row/Prompt
 @onready var target_cancel: Button = $TargetBar/Row/CancelTarget
+
+@onready var fx_layer: Control = $FxLayer
+@onready var gameover_overlay: Control = $GameOverOverlay
+@onready var gameover_title: Label = $GameOverOverlay/Center/Card/Column/Title
+@onready var gameover_subtitle: Label = $GameOverOverlay/Center/Card/Column/Subtitle
+@onready var gameover_restart: Button = $GameOverOverlay/Center/Card/Column/Restart
+
+var _gameover_shown: bool = false
 
 func _ready() -> void:
 	engine = Game.new()
@@ -74,13 +93,18 @@ func _setup_board() -> void:
 func _setup_overlays() -> void:
 	zoom_overlay.visible = false
 	target_bar.visible = false
+	gameover_overlay.visible = false
 	zoom_cancel.pressed.connect(_close_zoom)
 	target_cancel.pressed.connect(_clear_targeting)
 	zoom_backdrop.gui_input.connect(_on_backdrop_input)
+	gameover_restart.pressed.connect(_on_restart)
 	UITheme.apply_ember(zoom_play)
 	UITheme.apply_ember(zoom_cancel, true)
 	UITheme.apply_ember(target_cancel, true)
 	UITheme.apply_ember(pass_button)
+	UITheme.apply_ember(gameover_restart)
+	gameover_title.add_theme_color_override("font_color", Palette.EMBER_300)
+	gameover_subtitle.add_theme_color_override("font_color", Palette.PARCHMENT_DIM)
 
 # A arte tem duas versões, paisagem e retrato, com geometrias diferentes.
 func _update_orientation() -> void:
@@ -399,11 +423,7 @@ func _on_slot_clicked(owner_id: String, slot_type: String, lane: int) -> void:
 
 	var idx := _selected_hand_index
 	_clear_targeting()
-	var result := engine.play_unit("player", idx, slot_type, lane)
-	if not result.get("ok", false):
-		print("Não deu: %s" % result.get("error", "?"))
-	_render_game()
-	_maybe_advance_ai()
+	await _run_action(func(): return engine.play_unit("player", idx, slot_type, lane))
 
 # ---------------------------------------------------------------- apoios
 
@@ -461,11 +481,7 @@ func _find_card_view(uid: String) -> CardView:
 
 func _play_apoio(idx: int, spec: Dictionary) -> void:
 	_clear_targeting()
-	var result := engine.play_apoio("player", idx, spec)
-	if not result.get("ok", false):
-		print("Não deu: %s" % result.get("error", "?"))
-	_render_game()
-	_maybe_advance_ai()
+	await _run_action(func(): return engine.play_apoio("player", idx, spec))
 
 # ---------------------------------------------------------------- táticas
 
@@ -490,20 +506,12 @@ func _play_tactico(idx: int, card_def: Dictionary) -> void:
 		return
 
 	_clear_targeting()
-	var result := engine.play_tatico_card("player", idx, {})
-	if not result.get("ok", false):
-		print("Não deu: %s" % result.get("error", "?"))
-	_render_game()
-	_maybe_advance_ai()
+	await _run_action(func(): return engine.play_tatico_card("player", idx, {}))
 
 func _confirm_tactico_target(target_card: Dictionary) -> void:
 	var idx: int = int(_pending_tactico["index"])
 	_clear_targeting()
-	var result := engine.play_tatico_card("player", idx, {"targetCard": target_card})
-	if not result.get("ok", false):
-		print("Não deu: %s" % result.get("error", "?"))
-	_render_game()
-	_maybe_advance_ai()
+	await _run_action(func(): return engine.play_tatico_card("player", idx, {"targetCard": target_card}))
 
 # ---------------------------------------------------------------- alvos
 
@@ -586,12 +594,170 @@ func _on_pass() -> void:
 	if not is_my_turn():
 		return
 	_clear_targeting()
-	engine.pass_turn("player")
+	await _run_action(func(): return engine.pass_turn("player"))
+
+# ---------------------------------------------------------------- combate
+
+func _wait(seconds: float) -> void:
+	if animation_speed <= 0.0:
+		return
+	await get_tree().create_timer(seconds / animation_speed).timeout
+
+# Toda a jogada passa por aqui. O motor resolve tudo de uma vez e deixa a
+# lista de passos em combat_steps; nós só a voltamos a contar em imagens.
+# Não se pode redesenhar o tabuleiro antes de a animação acabar, senão as
+# cartas que morreram desaparecem antes de se ver o golpe.
+func _run_action(action: Callable) -> void:
+	_busy = true
+	_render_hud()
+
+	var combates_antes: int = engine.combat_counter
+	action.call()
+
+	if engine.combat_counter != combates_antes and not engine.combat_steps.is_empty():
+		await _animate_combat(engine.combat_steps)
+
 	_render_game()
-	_maybe_advance_ai()
+	_busy = false
+	_check_game_over()
+	if engine.winner == "":
+		await _maybe_advance_ai()
+
+func _animate_combat(steps: Array) -> void:
+	for step in steps:
+		var tipo := str(step.get("type", ""))
+		if tipo == "attack":
+			await _animate_attack(step)
+		else:
+			await _animate_siege(step)
+
+func _animate_attack(step: Dictionary) -> void:
+	var atacante := _find_card_view(str(step.get("attacker", "")))
+	var alvo := _find_card_view(str(step.get("target", "")))
+	if atacante == null or alvo == null:
+		return
+
+	await _lunge(atacante, alvo.global_position + alvo.size * 0.5)
+	_show_damage(alvo, int(step.get("amount", 0)))
+	await _wait(T_HIT)
+
+	# Se o motor já a tirou do tabuleiro, mostra-a a morrer antes de sumir
+	if engine.get_card(str(step.get("target", ""))) == null:
+		await _animate_death(alvo)
+
+func _animate_siege(step: Dictionary) -> void:
+	var atacante := _find_card_view(str(step.get("attacker", "")))
+	var dono := str(step.get("towerOwner", ""))
+	var barra: Control = board._tower_bars.get(dono)
+
+	if atacante != null and barra != null:
+		await _lunge(atacante, barra.global_position + barra.size * 0.5)
+
+	board.set_tower(dono, int(step.get("towerAfter", 0)))
+	if barra != null:
+		_flash(barra)
+	await _wait(T_SIEGE)
+
+# A carta avança 65% do caminho até ao alvo e volta, como no web.
+func _lunge(vista: CardView, destino_global: Vector2) -> void:
+	if animation_speed <= 0.0:
+		return
+	var origem := vista.position
+	var centro := vista.global_position + vista.size * 0.5
+	var desvio := (destino_global - centro) * 0.65
+
+	vista.z_index = 90
+	var tw := create_tween()
+	tw.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	tw.tween_property(vista, "position", origem + desvio, T_LUNGE * 0.45 / animation_speed)
+	tw.parallel().tween_property(vista, "scale", Vector2(1.22, 1.22), T_LUNGE * 0.45 / animation_speed)
+	tw.tween_property(vista, "position", origem, T_LUNGE * 0.55 / animation_speed)
+	tw.parallel().tween_property(vista, "scale", Vector2.ONE, T_LUNGE * 0.55 / animation_speed)
+	await tw.finished
+	vista.z_index = 0
+
+func _animate_death(vista: CardView) -> void:
+	if animation_speed <= 0.0:
+		return
+	var tw := create_tween()
+	tw.set_ease(Tween.EASE_IN)
+	tw.tween_property(vista, "modulate", Color(0.35, 0.35, 0.35, 0.0), T_DEATH / animation_speed)
+	tw.parallel().tween_property(vista, "scale", Vector2(0.6, 0.6), T_DEATH / animation_speed)
+	await tw.finished
+
+# Número de dano a subir e a desvanecer sobre a carta atingida.
+func _show_damage(vista: CardView, amount: int) -> void:
+	if animation_speed <= 0.0:
+		return
+	var label := Label.new()
+	label.text = "-%d" % amount
+	label.add_theme_font_size_override("font_size", 22)
+	label.add_theme_color_override("font_color", Palette.EMBER_400)
+	label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
+	label.add_theme_constant_override("shadow_offset_y", 2)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fx_layer.add_child(label)
+
+	var centro := vista.global_position + Vector2(vista.size.x * 0.5, 0)
+	label.global_position = centro - fx_layer.global_position
+
+	var tw := create_tween()
+	tw.tween_property(label, "position", label.position + Vector2(0, -34), 1.1 / animation_speed)
+	tw.parallel().tween_property(label, "modulate", Color(1, 1, 1, 0), 1.1 / animation_speed)
+	tw.tween_callback(label.queue_free)
+
+func _flash(alvo: Control) -> void:
+	if animation_speed <= 0.0:
+		return
+	var tw := create_tween()
+	tw.tween_property(alvo, "modulate", Color(2.2, 1.6, 1.4, 1), 0.2 / animation_speed)
+	tw.tween_property(alvo, "modulate", Color(1, 1, 1, 1), 0.3 / animation_speed)
+
+# ---------------------------------------------------------------- fim de jogo
+
+func _check_game_over() -> void:
+	if engine.phase != "gameover" or _gameover_shown:
+		return
+	_gameover_shown = true
+
+	var empate := engine.winner == "empate"
+	var ganhou := engine.winner == "player"
+
+	if empate:
+		gameover_title.text = "Empate"
+		gameover_subtitle.text = "Nenhuma Torre caiu antes do limite de turnos — venceu quem deixou a Torre do outro mais perto de cair."
+	elif ganhou:
+		gameover_title.text = "Vitória"
+		gameover_subtitle.text = "Derrubaste a Torre do adversário."
+	else:
+		gameover_title.text = "Derrota"
+		gameover_subtitle.text = "O adversário derrubou a tua Torre."
+
+	gameover_overlay.visible = true
+
+func _on_restart() -> void:
+	gameover_overlay.visible = false
+	Session.clear()
+	get_tree().change_scene_to_file(MENU_SCENE)
+
+# ---------------------------------------------------------------- adversário
 
 # A IA a sério chega na Fase 8; por agora passa, para o turno poder avançar.
 func _maybe_advance_ai() -> void:
 	while engine.phase == "placement" and engine.active_player == "ai":
+		_busy = true
+		_render_hud()
+		await _wait(T_AI_THINK)
+
+		var combates_antes: int = engine.combat_counter
 		engine.pass_turn("ai")
+
+		if engine.combat_counter != combates_antes and not engine.combat_steps.is_empty():
+			await _animate_combat(engine.combat_steps)
+
+		_render_game()
+		_busy = false
+		_check_game_over()
+		if engine.winner != "":
+			return
 	_render_game()

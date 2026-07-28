@@ -89,6 +89,15 @@ custom_minimum_size = Vector2(0, 42)
 layout_mode = 2
 text = "Passar"
 
+[node name="FxLayer" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
 [node name="TargetBar" type="PanelContainer" parent="."]
 visible = false
 layout_mode = 1
@@ -167,3 +176,55 @@ text = "Jogar"
 custom_minimum_size = Vector2(130, 44)
 layout_mode = 2
 text = "Cancelar"
+
+[node name="GameOverOverlay" type="Control" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Backdrop" type="ColorRect" parent="GameOverOverlay"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.85)
+
+[node name="Center" type="CenterContainer" parent="GameOverOverlay"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Card" type="PanelContainer" parent="GameOverOverlay/Center"]
+custom_minimum_size = Vector2(420, 0)
+layout_mode = 2
+
+[node name="Column" type="VBoxContainer" parent="GameOverOverlay/Center/Card"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="GameOverOverlay/Center/Card/Column"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 34
+text = "Vitória"
+horizontal_alignment = 1
+
+[node name="Subtitle" type="Label" parent="GameOverOverlay/Center/Card/Column"]
+custom_minimum_size = Vector2(380, 0)
+layout_mode = 2
+text = "Derrubaste a Torre do adversário."
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="Restart" type="Button" parent="GameOverOverlay/Center/Card/Column"]
+custom_minimum_size = Vector2(0, 46)
+layout_mode = 2
+text = "Voltar ao menu"

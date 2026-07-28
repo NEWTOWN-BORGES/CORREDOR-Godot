@@ -66,6 +66,10 @@ var phase: String = "placement"      # placement | combat | gameover
 var active_player: String = "player"
 var winner: String = ""
 var combat_steps: Array = []
+# Sobe a cada resolução de combate. A UI usa-o para saber se houve combate
+# desde a última jogada — comparar o tamanho de combat_steps não chega,
+# porque dois combates seguidos podem ter o mesmo número de passos.
+var combat_counter: int = 0
 var players: Dictionary = {}
 
 var abilities: AbilityDispatcher = null
@@ -1017,6 +1021,7 @@ func _run_turn_start_triggers() -> void:
 func _resolve_combat() -> void:
 	phase = "combat"
 	combat_steps = []
+	combat_counter += 1
 	recompute_statics()
 
 	var order := []

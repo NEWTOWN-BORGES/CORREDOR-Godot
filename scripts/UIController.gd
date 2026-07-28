@@ -1,108 +1,148 @@
 extends Control
 
-var engine: GameEngine
+# Ligação provisória entre o motor e a UI (será substituída nas Fases 3-6
+# por MenuController + BoardRenderer + HandRenderer). Serve para validar que
+# o motor arranca, distribui mão e aceita jogadas.
+
+const PLAYER_FACTION := "reinos"
+const AI_FACTION := "coro"
+
+var engine: Game = null
 var cartas: Dictionary = {}
-var player_faction: String = "reinos"
-var ai_faction: String = "coro"
+var log_lines: Array = []
 
-@onready var tatico_container = $VBoxContainer/TacticoHand/CardContainer
-@onready var hand_container = $VBoxContainer/Hand/HandContainer
-@onready var hud_label = $VBoxContainer/HUD
-@onready var pass_button = $VBoxContainer/ButtonPass
+@onready var tatico_container: HBoxContainer = $VBoxContainer/TacticoHand/CardContainer
+@onready var hand_container: HBoxContainer = $VBoxContainer/Hand/HandContainer
+@onready var hud_label: Label = $VBoxContainer/HUD
+@onready var pass_button: Button = $VBoxContainer/ButtonPass
 
-func _ready():
-	engine = GameEngine.new()
-	add_child(engine)
-	_load_cards()
+func _ready() -> void:
+	engine = Game.new()
+	if not _load_cards():
+		hud_label.text = "Erro: não foi possível carregar res://resources/cartas.json"
+		return
 	_start_game()
 	_render_game()
 	pass_button.pressed.connect(_on_pass)
 
-func _load_cards():
-	var json_str = FileAccess.get_file_as_string("res://resources/cartas.json")
-	cartas = JSON.parse_string(json_str)
-	print("Carregadas: %d cartas" % [
-		cartas.get("unidades", []).size() +
-		cartas.get("apoios", []).size() +
-		cartas.get("taticos", []).size()
+func _load_cards() -> bool:
+	var path := "res://resources/cartas.json"
+	if not FileAccess.file_exists(path):
+		push_error("cartas.json não encontrado em %s" % path)
+		return false
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if typeof(parsed) != TYPE_DICTIONARY:
+		push_error("cartas.json inválido")
+		return false
+	cartas = parsed
+	print("Carregadas %d unidades, %d apoios, %d táticos" % [
+		(cartas.get("unidades", []) as Array).size(),
+		(cartas.get("apoios", []) as Array).size(),
+		(cartas.get("taticos", []) as Array).size()
 	])
+	return true
 
-func _start_game():
-	var player_deck = _build_faction_deck(player_faction)
-	var ai_deck = _build_faction_deck(ai_faction)
-	engine.init_game(player_deck, ai_deck)
+func _start_game() -> void:
+	var player_deck := DeckManager.build_faction_deck(cartas, PLAYER_FACTION)
+	var ai_deck := DeckManager.build_faction_deck(cartas, AI_FACTION)
+	engine.init_game(player_deck, ai_deck, _on_engine_log)
 
-func _build_faction_deck(faction_slug: String) -> Array:
-	var all_cards = cartas.get("unidades", []) + cartas.get("apoios", []) + cartas.get("taticos", [])
-	var faction_cards = []
-	for card in all_cards:
-		if card.get("faccao_slug") == faction_slug:
-			faction_cards.append(card)
-	return faction_cards.slice(0, 20)
+func _on_engine_log(msg: String) -> void:
+	log_lines.append(msg)
+	print(msg)
 
-func _render_game():
-	# Limpar
+func _render_game() -> void:
 	for child in tatico_container.get_children():
 		child.queue_free()
 	for child in hand_container.get_children():
 		child.queue_free()
 
-	var p = engine.players["player"]
+	var p: Dictionary = engine.players["player"]
+	var my_turn: bool = engine.active_player == "player" and engine.phase == "placement"
 
-	# Render Tatico Hand
-	for i in range(p.get("tacticoHand", []).size()):
-		var card = p["tacticoHand"][i]
-		var btn = Button.new()
-		btn.text = card.get("nome", "?")
-		btn.custom_minimum_size = Vector2(100, 100)
-		btn.pressed.connect(func(): _play_tatico(i))
+	var tactico_hand: Array = p["tacticoHand"]
+	for i in range(tactico_hand.size()):
+		var btn := Button.new()
+		btn.text = str(tactico_hand[i].get("nome", "?"))
+		btn.custom_minimum_size = Vector2(110, 90)
+		btn.disabled = not my_turn
+		var idx := i
+		btn.pressed.connect(func(): _play_tatico(idx))
 		tatico_container.add_child(btn)
 
-	# Render Military Hand
-	for i in range(p.get("hand", []).size()):
-		var card = p["hand"][i]
-		var btn = Button.new()
-		btn.text = card.get("nome", "?")
-		btn.custom_minimum_size = Vector2(100, 120)
-		btn.pressed.connect(func(): _play_unit(i))
+	var hand: Array = p["hand"]
+	for i in range(hand.size()):
+		var card: Dictionary = hand[i]
+		var btn := Button.new()
+		btn.text = "%s\n%d/%d" % [
+			str(card.get("nome", "?")),
+			int(card.get("ataque", 0)),
+			int(card.get("vida", 0))
+		]
+		btn.custom_minimum_size = Vector2(110, 120)
+		btn.disabled = not my_turn
+		var idx := i
+		btn.pressed.connect(func(): _play_unit(idx))
 		hand_container.add_child(btn)
 
-	# Update HUD
-	hud_label.text = "CORREDOR — Godot\nTurno %d / 12 | %s\nUnidades: %d/3" % [
-		engine.round,
-		"A tua vez" if engine.activePlayer == "player" else "Vez do adversário",
-		engine.players["player"].get("unitPlaysThisRound", 0)
+	pass_button.disabled = not my_turn
+	_render_hud()
+
+func _render_hud() -> void:
+	var turn_text := ""
+	if engine.phase == "gameover":
+		turn_text = "Fim de jogo — vencedor: %s" % engine.winner
+	elif engine.active_player == "player":
+		turn_text = "A tua vez"
+	else:
+		turn_text = "Vez do adversário"
+
+	hud_label.text = "CORREDOR — Turno %d/%d | %s\nTorres  tu %d  ·  adversário %d   |   Unidades %d/%d" % [
+		engine.current_round, Game.ROUND_LIMIT, turn_text,
+		engine.towers["player"], engine.towers["ai"],
+		engine.players["player"]["unitPlaysThisRound"], engine.get_unit_cap("player")
 	]
 
-func _play_tatico(idx: int):
-	var result = engine.play_tatico_card("player", idx, {})
-	if result.get("ok"):
-		print("Jogou: %s" % result.get("card", {}).get("nome", "?"))
-		_render_game()
-	else:
-		print("Erro: %s" % result.get("error", "?"))
+func _play_tatico(idx: int) -> void:
+	var result := engine.play_tatico_card("player", idx, {})
+	if not result.get("ok", false):
+		print("Não deu: %s" % result.get("error", "?"))
+	_render_game()
+	_maybe_advance_ai()
 
-func _play_unit(idx: int):
-	# Simplificado: coloca sempre na primeira slot livre
-	var p = engine.players["player"]
-	var card = p["hand"][idx]
+func _play_unit(idx: int) -> void:
+	var p: Dictionary = engine.players["player"]
+	if idx >= (p["hand"] as Array).size():
+		return
+	var card: Dictionary = p["hand"][idx]
 
-	var slot_type = "frente"
-	var slot_idx = 0
-	for i in range(6):
-		if p["front"][i] == null:
-			slot_idx = i
+	# Escolhe automaticamente a primeira casa válida para o papel da carta.
+	var placed := false
+	for slot_type in ["frente", "retaguarda"]:
+		var lanes: Array = range(Game.FRONT_LANES) if slot_type == "frente" else Game.BACK_LANES
+		for lane in lanes:
+			if engine.can_place_unit("player", card, slot_type, lane):
+				var result := engine.play_unit("player", idx, slot_type, lane)
+				if result.get("ok", false):
+					placed = true
+				else:
+					print("Não deu: %s" % result.get("error", "?"))
+				break
+		if placed:
 			break
 
-	var result = engine.play_unit("player", idx, slot_type, slot_idx)
-	if result.get("ok"):
-		print("Jogou unidade: %s" % result.get("card", {}).get("nome", "?"))
-		_render_game()
-	else:
-		print("Erro: %s" % result.get("error", "?"))
+	if not placed:
+		print("Sem casa livre para %s" % card.get("nome", "?"))
+	_render_game()
+	_maybe_advance_ai()
 
-func _on_pass():
-	var result = engine.pass_turn("player")
-	if result.get("ok"):
-		print("Passou")
-		_render_game()
+func _on_pass() -> void:
+	engine.pass_turn("player")
+	_render_game()
+	_maybe_advance_ai()
+
+# A IA a sério chega na Fase 8; por agora passa, para o turno poder avançar.
+func _maybe_advance_ai() -> void:
+	while engine.phase == "placement" and engine.active_player == "ai":
+		engine.pass_turn("ai")
+	_render_game()

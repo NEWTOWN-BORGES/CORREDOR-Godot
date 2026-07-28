@@ -1,6 +1,11 @@
-[gd_scene load_steps=2 format=3 uid="uid://d1kbdm2cy4xdpxy"]
+[gd_scene load_steps=5 format=3 uid="uid://d1kbdm2cy4xdpxy"]
 
 [ext_resource type="Script" path="res://scripts/UIController.gd" id="1_ui"]
+[ext_resource type="Shader" path="res://assets/shaders/background.gdshader" id="2_bg"]
+[ext_resource type="Script" path="res://scripts/BoardRenderer.gd" id="3_board"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_bg"]
+shader = ExtResource("2_bg")
 
 [node name="Game" type="Control"]
 layout_mode = 3
@@ -12,56 +17,50 @@ grow_vertical = 2
 script = ExtResource("1_ui")
 
 [node name="Background" type="ColorRect" parent="."]
+material = SubResource("ShaderMaterial_bg")
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.09, 0.09, 0.11, 1)
 
 [node name="VBoxContainer" type="VBoxContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 12.0
-offset_top = 12.0
-offset_right = -12.0
-offset_bottom = -12.0
+offset_left = 10.0
+offset_top = 8.0
+offset_right = -10.0
+offset_bottom = -8.0
 grow_horizontal = 2
 grow_vertical = 2
-theme_override_constants/separation = 8
+theme_override_constants/separation = 6
 
 [node name="HUD" type="Label" parent="VBoxContainer"]
-custom_minimum_size = Vector2(0, 56)
+custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
-theme_override_font_sizes/font_size = 18
+theme_override_font_sizes/font_size = 15
 text = "CORREDOR"
 vertical_alignment = 1
 
-[node name="Board" type="ColorRect" parent="VBoxContainer"]
+[node name="BoardArea" type="AspectRatioContainer" parent="VBoxContainer"]
 layout_mode = 2
 size_flags_vertical = 3
-color = Color(0.14, 0.14, 0.17, 1)
+ratio = 1.2495
 
-[node name="BoardLabel" type="Label" parent="VBoxContainer/Board"]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-text = "TABULEIRO (Fase 4)"
-horizontal_alignment = 1
-vertical_alignment = 1
+[node name="Board" type="Control" parent="VBoxContainer/BoardArea"]
+layout_mode = 2
+script = ExtResource("3_board")
 
 [node name="TacticoHandLabel" type="Label" parent="VBoxContainer"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 12
 text = "Cartas Táticas"
 
 [node name="TacticoHand" type="ScrollContainer" parent="VBoxContainer"]
-custom_minimum_size = Vector2(0, 100)
+custom_minimum_size = Vector2(0, 92)
 layout_mode = 2
 horizontal_scroll_mode = 1
 vertical_scroll_mode = 0
@@ -72,10 +71,11 @@ theme_override_constants/separation = 6
 
 [node name="HandLabel" type="Label" parent="VBoxContainer"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 12
 text = "Mão Militar"
 
 [node name="Hand" type="ScrollContainer" parent="VBoxContainer"]
-custom_minimum_size = Vector2(0, 130)
+custom_minimum_size = Vector2(0, 124)
 layout_mode = 2
 horizontal_scroll_mode = 1
 vertical_scroll_mode = 0
@@ -85,6 +85,6 @@ layout_mode = 2
 theme_override_constants/separation = 6
 
 [node name="ButtonPass" type="Button" parent="VBoxContainer"]
-custom_minimum_size = Vector2(0, 44)
+custom_minimum_size = Vector2(0, 42)
 layout_mode = 2
 text = "Passar"

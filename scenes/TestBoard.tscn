@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://c9testboardcorredor"]
+
+[ext_resource type="Script" path="res://scripts/test_board.gd" id="1_test"]
+
+[node name="TestBoard" type="Node"]
+script = ExtResource("1_test")

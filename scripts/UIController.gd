@@ -16,15 +16,34 @@ var log_lines: Array = []
 @onready var hand_container: HBoxContainer = $VBoxContainer/Hand/HandContainer
 @onready var hud_label: Label = $VBoxContainer/HUD
 @onready var pass_button: Button = $VBoxContainer/ButtonPass
+@onready var board_area: AspectRatioContainer = $VBoxContainer/BoardArea
+@onready var board: BoardRenderer = $VBoxContainer/BoardArea/Board
 
 func _ready() -> void:
 	engine = Game.new()
 	if not _load_cards():
 		hud_label.text = "Erro: não foi possível carregar res://resources/cartas.json"
 		return
+	_setup_board()
 	_start_game()
 	_render_game()
 	pass_button.pressed.connect(_on_pass)
+
+func _setup_board() -> void:
+	board.slot_clicked.connect(_on_slot_clicked)
+	get_viewport().size_changed.connect(_update_orientation)
+	_update_orientation()
+
+# A arte tem duas versões, paisagem e retrato, com geometrias diferentes.
+func _update_orientation() -> void:
+	var tamanho := get_viewport_rect().size
+	var portrait := tamanho.y > tamanho.x
+	board.set_portrait(portrait)
+	board_area.ratio = BoardGeometry.aspect_ratio(portrait)
+
+func _on_slot_clicked(owner_id: String, slot_type: String, lane: int) -> void:
+	# A colocação por clique na casa chega na Fase 6.
+	print("casa clicada: %s %s %d" % [owner_id, slot_type, lane])
 
 # As cartas vêm do autoload Cards (scripts/CardLoader.gd), que também serve
 # as texturas a pedido — ver Fase 2.
@@ -90,6 +109,9 @@ func _render_game() -> void:
 		hand_container.add_child(btn)
 
 	pass_button.disabled = not my_turn
+	board.set_tower("player", int(engine.towers["player"]))
+	board.set_tower("ai", int(engine.towers["ai"]))
+	board.update_board_art(int(engine.towers["player"]), int(engine.towers["ai"]))
 	_render_hud()
 
 func _render_hud() -> void:

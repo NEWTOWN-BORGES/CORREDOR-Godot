@@ -38,7 +38,8 @@ var _busy: bool = false
 
 @onready var tatico_container: HBoxContainer = $VBoxContainer/TacticoHand/CardContainer
 @onready var hand_container: HBoxContainer = $VBoxContainer/Hand/HandContainer
-@onready var hud_label: Label = $VBoxContainer/HUD
+@onready var hud_label: Label = $VBoxContainer/TopRow/HUD
+@onready var music_button: Button = $VBoxContainer/TopRow/ButtonMusic
 @onready var pass_button: Button = $VBoxContainer/ButtonPass
 @onready var board_area: AspectRatioContainer = $VBoxContainer/BoardArea
 @onready var board: BoardRenderer = $VBoxContainer/BoardArea/Board
@@ -72,6 +73,7 @@ func _ready() -> void:
 	_start_game()
 	_render_game()
 	pass_button.pressed.connect(_on_pass)
+	Sfx.start_music()
 
 # As cartas vêm do autoload Cards (scripts/CardLoader.gd), que também serve
 # as texturas a pedido — ver Fase 2.
@@ -115,8 +117,18 @@ func _setup_overlays() -> void:
 	UITheme.apply_ember(target_cancel, true)
 	UITheme.apply_ember(pass_button)
 	UITheme.apply_ember(gameover_restart)
+	UITheme.apply_ember(music_button, true)
+	music_button.pressed.connect(_on_toggle_music)
+	_refresh_music_button()
 	gameover_title.add_theme_color_override("font_color", Palette.EMBER_300)
 	gameover_subtitle.add_theme_color_override("font_color", Palette.PARCHMENT_DIM)
+
+func _on_toggle_music() -> void:
+	Sfx.toggle_muted()
+	_refresh_music_button()
+
+func _refresh_music_button() -> void:
+	music_button.text = "Sem som" if Sfx.is_muted() else "Som"
 
 # A arte tem duas versões, paisagem e retrato, com geometrias diferentes.
 func _update_orientation() -> void:
@@ -385,6 +397,7 @@ func _on_hand_card_click(idx: int) -> void:
 		return
 
 	var card_def: Dictionary = hand[idx]
+	Sfx.clique()
 	_open_zoom(card_def, is_hand_card_playable(card_def), func(): _commit_hand_selection(idx, card_def))
 
 func _commit_hand_selection(idx: int, card_def: Dictionary) -> void:
@@ -440,6 +453,7 @@ func _on_slot_clicked(owner_id: String, slot_type: String, lane: int) -> void:
 	var viagem := _travel_rects(idx, owner_id, slot_type, lane)
 	_clear_targeting()
 	await _fly_card(card_def, viagem)
+	Sfx.unidade()
 	await _run_action(func(): return engine.play_unit("player", idx, slot_type, lane))
 
 # De onde para onde a carta voa: da posição dela na mão até à casa escolhida.
@@ -521,6 +535,7 @@ func _play_apoio(idx: int, spec: Dictionary) -> void:
 	_clear_targeting()
 	if not card_def.is_empty():
 		await _fly_card(card_def, viagem)
+	Sfx.apoio()
 	await _run_action(func(): return engine.play_apoio("player", idx, spec))
 
 # ---------------------------------------------------------------- táticas
@@ -532,6 +547,7 @@ func _on_tactico_card_click(idx: int) -> void:
 	if idx < 0 or idx >= mao.size():
 		return
 	var card_def: Dictionary = mao[idx]
+	Sfx.clique()
 	_open_zoom(card_def, is_my_turn(), func(): _play_tactico(idx, card_def))
 
 func _play_tactico(idx: int, card_def: Dictionary) -> void:
@@ -626,6 +642,7 @@ func _on_equipment_clicked(card: Dictionary, equip_index: int) -> void:
 	if str(card.get("ownerId", "")) != "player":
 		return
 	engine.remove_equipamento(str(card.get("uid", "")), equip_index)
+	Sfx.clique()
 	_render_game()
 
 # ---------------------------------------------------------------- turno
@@ -634,6 +651,7 @@ func _on_pass() -> void:
 	if not is_my_turn():
 		return
 	_clear_targeting()
+	Sfx.passar()
 	await _run_action(func(): return engine.pass_turn("player"))
 
 # ---------------------------------------------------------------- combate
@@ -679,16 +697,19 @@ func _animate_attack(step: Dictionary) -> void:
 
 	var centro_alvo := alvo.global_position + alvo.size * 0.5
 	fx_layer.attack_trail(atacante.global_position + atacante.size * 0.5, centro_alvo)
+	Sfx.golpe()
 	await _lunge(atacante, centro_alvo)
 
 	fx_layer.float_number(alvo.global_position + Vector2(alvo.size.x * 0.5, alvo.size.y * 0.25),
 		"-%d" % int(step.get("amount", 0)), "dano")
 	_shake(alvo)
+	Sfx.impacto()
 	await _wait(T_HIT)
 
 	# Se o motor já a tirou do tabuleiro, mostra-a a morrer antes de sumir
 	if engine.get_card(str(step.get("target", ""))) == null:
 		fx_layer.skull_pop(centro_alvo)
+		Sfx.morte()
 		await _animate_death(alvo)
 
 func _animate_siege(step: Dictionary) -> void:
@@ -699,9 +720,11 @@ func _animate_siege(step: Dictionary) -> void:
 	if atacante != null and barra != null:
 		var centro_torre := barra.global_position + barra.size * 0.5
 		fx_layer.attack_trail(atacante.global_position + atacante.size * 0.5, centro_torre)
+		Sfx.golpe()
 		await _lunge(atacante, centro_torre)
 
 	board.set_tower(dono, int(step.get("towerAfter", 0)))
+	Sfx.cerco()
 	if barra != null:
 		fx_layer.float_number(barra.global_position + barra.size * 0.5,
 			"-%d" % int(step.get("amount", 0)), "dano")
@@ -771,9 +794,17 @@ func _check_game_over() -> void:
 		gameover_title.text = "Derrota"
 		gameover_subtitle.text = "O adversário derrubou a tua Torre."
 
+	if empate:
+		pass   # o web também não tem som próprio para empate
+	elif ganhou:
+		Sfx.vitoria()
+	else:
+		Sfx.derrota()
+
 	gameover_overlay.visible = true
 
 func _on_restart() -> void:
+	Sfx.clique()
 	gameover_overlay.visible = false
 	Session.clear()
 	get_tree().change_scene_to_file(MENU_SCENE)

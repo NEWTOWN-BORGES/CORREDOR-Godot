@@ -23,6 +23,7 @@ config/features=PackedStringArray("4.7", "Mobile")
 
 Cards="*res://scripts/CardLoader.gd"
 Session="*res://scripts/Session.gd"
+Sfx="*res://scripts/AudioManager.gd"
 
 [display]
 

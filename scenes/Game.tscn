@@ -39,12 +39,23 @@ grow_horizontal = 2
 grow_vertical = 2
 theme_override_constants/separation = 6
 
-[node name="HUD" type="Label" parent="VBoxContainer"]
+[node name="TopRow" type="HBoxContainer" parent="VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="HUD" type="Label" parent="VBoxContainer/TopRow"]
 custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
+size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 15
 text = "CORREDOR"
 vertical_alignment = 1
+
+[node name="ButtonMusic" type="Button" parent="VBoxContainer/TopRow"]
+custom_minimum_size = Vector2(96, 34)
+layout_mode = 2
+size_flags_vertical = 4
+text = "Som"
 
 [node name="BoardArea" type="AspectRatioContainer" parent="VBoxContainer"]
 layout_mode = 2

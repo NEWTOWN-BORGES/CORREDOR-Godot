@@ -127,6 +127,7 @@ func _on_faction_hover(btn: Button, entered: bool) -> void:
 	_paint_option(btn, false, entered)
 
 func _on_faction_pressed(btn: Button) -> void:
+	Sfx.clique()
 	_chosen_slug = str(btn.get_meta("slug"))
 	for other in _options:
 		var is_chosen: bool = other == btn
@@ -150,5 +151,6 @@ func pick_ai_faction(player_slug: String) -> String:
 func _on_start_pressed() -> void:
 	if _chosen_slug == "":
 		return
+	Sfx.clique()
 	Session.set_match(_chosen_slug, pick_ai_faction(_chosen_slug))
 	get_tree().change_scene_to_file(GAME_SCENE)

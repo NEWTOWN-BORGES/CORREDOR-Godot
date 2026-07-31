@@ -32,3 +32,10 @@ const ON_EMBER := Color("2a1204")
 # Contorno inferior dos botões de brasa (CSS: #5c2409 / #6b2a0d)
 const EMBER_EDGE := Color("6b2a0d")
 const EMBER_SHADOW := Color("5c2409")
+
+# --- Zonas do TABULEIRO.pdf ---------------------------------------------
+# As cores com que o tabuleiro foi traçado: verde o Baralho Militar, roxo o
+# Baralho de Apoio, amarelo o cemitério.
+const ZONA_MILITAR := Color("15a05a")
+const ZONA_APOIO := Color("9c27b0")
+const ZONA_CEMITERIO := Color("8a8330")

@@ -18,7 +18,7 @@ func _initialize() -> void:
 	test_ability_static_guerreiro()
 	test_ability_on_enter_heal()
 	test_ability_on_death_heals_tower()
-	test_matchup_multiplier()
+	test_no_type_matrix()
 	test_siege_damages_tower()
 	test_apoio_shield()
 	test_equipment_bonus_and_removal()
@@ -179,17 +179,30 @@ func test_ability_on_death_heals_tower() -> void:
 	g.deal_damage(card, 10, null)
 	check_eq(g.towers["player"], 21, "torre curada em 1 ao morrer")
 
-func test_matchup_multiplier() -> void:
-	print("Tipagem: +40% / -40%")
+func test_no_type_matrix() -> void:
+	print("Sem matriz global de tipos")
+	# A Bíblia descartou a tipagem universal: o dano já não é multiplicado
+	# por vantagem de tipo. Fogo contra Plantas bate exactamente o mesmo que
+	# Fogo contra Água.
 	var g := new_game([make_unit("a", "A", "GUERREIRO", 1, 1)], [make_unit("b", "B", "GUERREIRO", 1, 1)])
 
 	var fogo := place(g, "player", make_unit("f", "Fogo", "GUERREIRO", 5, 3, 0, "", ["FOGO"]), "frente", 0)
-	var planta := place(g, "ai", make_unit("p", "Planta", "GUERREIRO", 1, 9, 0, "", ["PLANTAS"]), "frente", 0)
-	var agua := place(g, "ai", make_unit("w", "Água", "GUERREIRO", 1, 9, 0, "", ["ÁGUA"]), "frente", 1)
+	fogo["turnosEmCampo"] = 1
+	var planta := place(g, "ai", make_unit("p", "Planta", "GUERREIRO", 0, 20, 0, "", ["PLANTAS"]), "frente", 0)
 
-	# comparação aproximada — 1.0-0.4 não dá exactamente 0.6 em vírgula flutuante
-	check(is_equal_approx(g.get_matchup_multiplier(fogo, planta), 1.4), "Fogo bate forte em Plantas (x1.4)")
-	check(is_equal_approx(g.get_matchup_multiplier(fogo, agua), 0.6), "Fogo é resistido por Água (x0.6)")
+	g._resolve_attack(fogo, "frente")
+	check_eq(int(planta["vidaAtual"]), 15, "Fogo bate 5 em Plantas, sem +40%")
+
+	# O mesmo atacante contra um tipo que o resistia
+	var g2 := new_game([make_unit("a", "A", "GUERREIRO", 1, 1)], [make_unit("b", "B", "GUERREIRO", 1, 1)])
+	var fogo2 := place(g2, "player", make_unit("f", "Fogo", "GUERREIRO", 5, 3, 0, "", ["FOGO"]), "frente", 0)
+	fogo2["turnosEmCampo"] = 1
+	var agua := place(g2, "ai", make_unit("w", "Água", "GUERREIRO", 0, 20, 0, "", ["ÁGUA"]), "frente", 0)
+
+	g2._resolve_attack(fogo2, "frente")
+	check_eq(int(agua["vidaAtual"]), 15, "e bate os mesmos 5 em Água, sem −40%")
+
+	check(not g.has_method("get_matchup_multiplier"), "a matriz saiu do motor")
 
 func test_siege_damages_tower() -> void:
 	print("Cerco: coluna vazia atinge a Torre")

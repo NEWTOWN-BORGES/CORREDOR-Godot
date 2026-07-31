@@ -11,7 +11,8 @@ class_name Game
 #     decisão do jogo.
 #   - Jogo alternado ao estilo Gwent, até ambos passarem.
 #   - Tabuleiro: 6 colunas na frente (Tanque/Guerreiro). Retaguarda tem 4
-#     colunas de combate (1-4); as colunas 0 e 5 são só para Apoios.
+#     colunas de combate (1-4); as colunas 0 e 5 são os dois baralhos.
+#   - Sem custo, mana ou energia. Sem matriz global de tipos.
 #   - Cada jogador tem a sua Torre (30 de vida). Coluna limpa → ataque à Torre.
 #   - Pressão/Ruptura e invocação lenta (Assassino ataca já ao entrar).
 
@@ -35,39 +36,10 @@ const MAO_MAX := 5
 const FAMILY_A := ["ORDEM", "PUREZA"]
 const FAMILY_B := ["SELVA", "MAGIA"]
 
-const STRONG_AGAINST := {
-	"FOGO": ["PLANTAS", "METAL"],
-	"ÁGUA": ["FOGO", "TERRA"],
-	"PLANTAS": ["ÁGUA", "TERRA"],
-	"VENTO": ["PLANTAS", "BESTA"],
-	"TERRA": ["METAL", "FOGO"],
-	"ANJO": ["DEMÓNIO", "SOMBRA"],
-	"DEMÓNIO": ["ANCESTRAL", "NORMAL"],
-	"ANCESTRAL": ["ANJO", "DEMÓNIO"],
-	"FADA": ["METAL", "TERRA"],
-	"LUZ": ["SOMBRA", "DEMÓNIO"],
-	"SOMBRA": ["LUZ", "ANJO"],
-	"METAL": ["FADA", "PLANTAS"],
-	"BESTA": ["PLANTAS", "NORMAL"],
-	"NORMAL": []
-}
-
-const WEAK_TO := {
-	"FOGO": ["ÁGUA", "TERRA"],
-	"ÁGUA": ["PLANTAS", "VENTO"],
-	"PLANTAS": ["FOGO", "VENTO"],
-	"VENTO": ["ÁGUA", "TERRA"],
-	"TERRA": ["ÁGUA", "PLANTAS"],
-	"ANJO": ["DEMÓNIO"],
-	"DEMÓNIO": ["ANJO", "LUZ"],
-	"ANCESTRAL": ["FOGO"],
-	"FADA": ["METAL"],
-	"LUZ": ["SOMBRA"],
-	"SOMBRA": ["LUZ"],
-	"METAL": ["FOGO", "TERRA", "VENTO"],
-	"BESTA": ["VENTO", "ANJO"],
-	"NORMAL": []
-}
+# A Bíblia descartou a tipagem universal: não existe matriz global de
+# fraquezas e vantagens. As vantagens específicas vivem nas habilidades das
+# cartas — ver os textos que falam de Sombra, Demónio, Metal e Anjo no
+# AbilityDispatcher, que continuam a ler o campo `tipo`.
 
 # Estado global
 var towers: Dictionary = {"player": TOWER_MAX, "ai": TOWER_MAX}
@@ -372,43 +344,16 @@ func has_alignment_bonus(card: Dictionary) -> bool:
 				return false
 	return true
 
+# ORDEM dá +1 de Ataque às cartas de topo. Era "custo 3+"; a Bíblia tirou o
+# custo do sistema, por isso passa a ser pela raridade — mesma intenção.
+const RARIDADES_ALTAS := ["RARA", "ÉPICA", "LENDÁRIA", "HERÓI"]
+
 func get_alignment_atk_bonus(card: Dictionary) -> int:
 	if not has_alignment_bonus(card):
 		return 0
-	if str(card.get("alinhamento", "")) == "ORDEM" and int(card.get("custo", 0)) >= 3:
-		return 1
-	return 0
-
-func get_matchup_multiplier(attacker: Dictionary, defender: Dictionary) -> float:
-	var mult := 1.0
-	var atk_types: Array = attacker.get("tipo", [])
-	var def_types: Array = defender.get("tipo", [])
-
-	var is_weak := false
-	for dt in def_types:
-		var weak_list: Array = WEAK_TO.get(dt, [])
-		for at in atk_types:
-			if weak_list.has(at):
-				is_weak = true
-				break
-		if is_weak:
-			break
-
-	var is_resisted := false
-	for dt in def_types:
-		var strong_list: Array = STRONG_AGAINST.get(dt, [])
-		for s in strong_list:
-			if atk_types.has(s):
-				is_resisted = true
-				break
-		if is_resisted:
-			break
-
-	if is_weak:
-		mult += 0.4
-	if is_resisted:
-		mult -= 0.4
-	return mult
+	if str(card.get("alinhamento", "")) != "ORDEM":
+		return 0
+	return 1 if RARIDADES_ALTAS.has(str(card.get("raridade", ""))) else 0
 
 func get_combat_mod_bonus(card: Dictionary, defender: Dictionary) -> int:
 	var def := abilities.get_unit_ability(str(card.get("habilidade_texto", "")))
@@ -1138,10 +1083,11 @@ func _strike(attacker: Dictionary, target, siege_if_no_target: bool) -> void:
 
 	_apply_lane_reductions(target)
 
+	# Sem matriz de tipos: ataque efectivo + alinhamento + o que a habilidade
+	# da própria carta acrescentar contra este defensor.
 	var dmg := get_effective_ataque(attacker)
 	dmg += get_alignment_atk_bonus(attacker)
 	dmg += get_combat_mod_bonus(attacker, target)
-	dmg = int(round(float(dmg) * get_matchup_multiplier(attacker, target)))
 	dmg = max(0, dmg)
 
 	_run_on_attacked(target, attacker)

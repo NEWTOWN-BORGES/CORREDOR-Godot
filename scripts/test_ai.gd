@@ -43,7 +43,7 @@ func _run_tests() -> void:
 	test_tatico_equipment_target()
 	test_tatico_magic_finishes_off()
 	test_tatico_consumable_only_when_worth_it()
-	test_tatico_blessing_needs_attacker()
+	test_removed_categories_not_played()
 	test_tatico_skips_inert_types()
 	test_tatico_turn_limit()
 	test_tatico_order_before_units()
@@ -134,10 +134,10 @@ func test_score_prefers_stronger() -> void:
 	var resistente := unit("Resistente", "GUERREIRO", 1, 4, 0, 0)
 	check(ai.score_unit(atacante) > ai.score_unit(resistente), "ataque pesa a dobrar (7 contra 6)")
 
-	# Custo mais alto desempata para baixo
+	# O custo saiu do sistema: duas cartas iguais valem o mesmo, venha de onde vier
 	var barata := unit("Barata", "GUERREIRO", 2, 2, 0, 1)
 	var cara := unit("Cara", "GUERREIRO", 2, 2, 0, 5)
-	check(ai.score_unit(barata) > ai.score_unit(cara), "entre iguais, prefere a mais barata")
+	check_eq(ai.score_unit(barata), ai.score_unit(cara), "custo já não conta na pontuação")
 
 func test_slot_order_centre_first() -> void:
 	print("Prefere as colunas do centro")
@@ -399,30 +399,29 @@ func test_tatico_consumable_only_when_worth_it() -> void:
 	plano = ai.plan_tatico(engine, pocao)
 	check_eq(str(plano["target"]["nome"]), "Intacto", "ignora quem não pode ser curado")
 
-func test_tatico_blessing_needs_attacker() -> void:
-	print("Bênção só numa carta que vá atacar")
+func test_removed_categories_not_played() -> void:
+	print("Categorias removidas não são jogadas")
 	reset()
-	# Acabada de entrar: não age este turno
-	var recem := place("ai", unit("Recém", "GUERREIRO", 4, 4), "frente", 1)
-	recem["turnosEmCampo"] = 0
+	place("ai", unit("Pronto", "GUERREIRO", 4, 4), "frente", 1)
 
-	var bencao := tatico("Bênção", "Bênção Real", {"tipo_efeito": "bencao"})
-	check(ai.plan_tatico(engine, bencao).is_empty(), "ninguém pronto a atacar, guarda")
+	# A Bíblia fixou o Apoio em Equipamento, Magia e Consumível. Se uma das
+	# categorias saídas aparecer na mão, a IA guarda-a em vez de a gastar.
+	for tipo_removido in ["Bênção", "Construção", "Clima"]:
+		var carta := tatico(tipo_removido, "Antiga", {"tipo_efeito": "bencao", "vida_construcao": 8, "duracao_turnos": 3})
+		check(ai.plan_tatico(engine, carta).is_empty(), "%s não é jogada" % tipo_removido)
 
-	# Já em campo há um turno: pode atacar
-	recem["turnosEmCampo"] = 1
-	var plano := ai.plan_tatico(engine, bencao)
-	check(not plano.is_empty(), "com atacante pronto, usa")
-	check_eq(str(plano["target"]["nome"]), "Recém", "no que vai atacar")
-
-	# Entre dois prontos, escolhe o que bate mais
-	var forte := place("ai", unit("Forte", "GUERREIRO", 7, 4), "frente", 2)
-	forte["turnosEmCampo"] = 1
-	plano = ai.plan_tatico(engine, bencao)
-	check_eq(str(plano["target"]["nome"]), "Forte", "escolhe o que bate mais")
+	# E o DeckManager nem sequer as põe no baralho
+	var baralho := DeckManager.build_faction_deck(Cards.as_dictionary(), "reinos")
+	var indevidas := 0
+	for c in baralho["mao"]:
+		if c.get("isApoio", false):
+			continue
+		if not DeckManager.CATEGORIAS_APOIO.has(str(c.get("tipo_tatico", ""))):
+			indevidas += 1
+	check_eq(indevidas, 0, "baralho só traz Equipamento, Magia e Consumível")
 
 func test_tatico_skips_inert_types() -> void:
-	print("Não gasta jogadas com Construção e Clima")
+	print("Cartas sem efeito ficam na mão")
 	reset()
 	place("ai", unit("Qualquer", "GUERREIRO", 2, 5), "frente", 1)
 

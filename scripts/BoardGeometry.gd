@@ -32,6 +32,19 @@ const RANKS_PORTRAIT := {
 const SLOT_GAP := 0.008
 const LANES := 6
 
+# --- Zonas do TABULEIRO.pdf ---------------------------------------------
+# As pontas da retaguarda são os dois baralhos, espelhados entre os lados:
+# o jogador tem o Apoio à esquerda e o Militar à direita, a IA ao contrário.
+const LANE_ESQUERDA := 0
+const LANE_DIREITA := 5
+
+# O cemitério fica ao centro, entre a barra da Torre e a linha de retaguarda.
+# Paisagem: a retaguarda do jogador acaba a 83.2% e a Torre está a 94.5%, por
+# isso o centro tem de ficar entre 86.8% e 90.9% para não tocar em nenhuma.
+const CEMITERIO_LANDSCAPE := {"ai": 0.140, "player": 0.885}
+const CEMITERIO_PORTRAIT := {"ai": 0.120, "player": 0.860}
+const CEMITERIO_TAMANHO := Vector2(0.088, 0.072)
+
 # Torres: CSS `left: 50%; transform: translateX(-50%); width: 30%`
 const TOWER_WIDTH := 0.30
 const TOWER_MIN_WIDTH := 180.0
@@ -66,6 +79,26 @@ static func slot_width() -> float:
 static func slot_left(lane: int) -> float:
 	return float(lane) * (slot_width() + SLOT_GAP)
 
-# As colunas 0 e 5 da retaguarda nunca recebem unidades — são só de Apoio.
+# As colunas 0 e 5 da retaguarda nunca recebem unidades — são os baralhos.
+static func is_deck_slot(slot_type: String, lane: int) -> bool:
+	return slot_type == "retaguarda" and (lane == LANE_ESQUERDA or lane == LANE_DIREITA)
+
+# Mantido pelo nome antigo: a regra de jogo é a mesma, mudou o que lá está.
 static func is_apoio_slot(slot_type: String, lane: int) -> bool:
-	return slot_type == "retaguarda" and (lane == 0 or lane == LANES - 1)
+	return is_deck_slot(slot_type, lane)
+
+# Qual dos dois baralhos está nesta ponta. Espelhado, como no PDF: o jogador
+# tem o Apoio à esquerda e o Militar à direita; a IA ao contrário.
+static func deck_kind(owner_id: String, lane: int) -> String:
+	if lane == LANE_ESQUERDA:
+		return "apoio" if owner_id == "player" else "militar"
+	if lane == LANE_DIREITA:
+		return "militar" if owner_id == "player" else "apoio"
+	return ""
+
+# Onde fica o cemitério desse lado, em fracções do tabuleiro.
+static func graveyard_rect(owner_id: String, portrait: bool) -> Rect2:
+	var tops := CEMITERIO_PORTRAIT if portrait else CEMITERIO_LANDSCAPE
+	var y := float(tops.get(owner_id, 0.5))
+	var tamanho := CEMITERIO_TAMANHO
+	return Rect2(0.5 - tamanho.x * 0.5, y - tamanho.y * 0.5, tamanho.x, tamanho.y)

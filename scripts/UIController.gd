@@ -218,52 +218,78 @@ func _render_board() -> void:
 		for slot_type in ["frente", "retaguarda"]:
 			var arr: Array = p["front"] if slot_type == "frente" else p["back"]
 			for lane in range(Game.FRONT_LANES):
-				# As pontas da retaguarda são a zona de Apoio; quem trata
-				# delas é _render_apoio_zones, senão apagavam-se a cada render.
-				if BoardGeometry.is_apoio_slot(slot_type, lane):
+				# As pontas da retaguarda são os dois baralhos; quem trata
+				# delas é _render_deck_zones.
+				if BoardGeometry.is_deck_slot(slot_type, lane):
 					continue
 				_sync_slot(owner_id, slot_type, lane, arr[lane])
 
-	_render_apoio_zones()
+	_render_deck_zones()
+	_render_graveyards()
 	board.set_tower("player", int(engine.towers["player"]))
 	board.set_tower("ai", int(engine.towers["ai"]))
 	board.update_board_art(int(engine.towers["player"]), int(engine.towers["ai"]))
 
-# As pontas da retaguarda são a zona de Apoio: mostram o último Apoio jogado,
-# sem stats nem Pressão, e não ocupam espaço de unidade.
-func _render_apoio_zones() -> void:
+# As pontas da retaguarda são os dois baralhos, como no TABULEIRO.pdf:
+# o jogador tem o Apoio à esquerda e o Militar à direita, a IA ao contrário.
+func _render_deck_zones() -> void:
 	for owner_id in ["player", "ai"]:
-		var holder := board.card_holder(owner_id, "retaguarda", 0)
-		if holder == null:
-			continue
+		var p: Dictionary = engine.players[owner_id]
+		board.set_deck_count(owner_id, "militar", (p["militaryDeck"] as Array).size())
+		board.set_deck_count(owner_id, "apoio", (p["deck"] as Array).size())
 
-		var existente: CardView = null
-		for child in holder.get_children():
-			if child is CardView:
-				existente = child
-				break
+# O cemitério mostra a última carta que saiu de campo e o total acumulado.
+# Conta as unidades mortas e os Apoios e Táticas já gastos.
+func _render_graveyards() -> void:
+	for owner_id in ["player", "ai"]:
+		var p: Dictionary = engine.players[owner_id]
+		var total: int = (p["graveyard"] as Array).size() + (p["discard"] as Array).size()
+		board.set_graveyard_count(owner_id, total)
+		_sync_graveyard_card(owner_id, _last_card_out(p))
 
-		var ultimo = engine.players[owner_id]["lastApoio"]
-		if ultimo == null:
-			if existente != null:
-				holder.remove_child(existente)
-				existente.queue_free()
-			continue
+# A última carta a sair de campo: a unidade que morreu ou o Apoio que se
+# resolveu, o que tiver acontecido mais recentemente.
+func _last_card_out(p: Dictionary):
+	var morta = p["lastDeadCard"]
+	var apoio = p["lastApoio"]
+	if morta != null:
+		return morta
+	return apoio
 
-		var id_actual := str(ultimo.get("id", ""))
-		if existente != null and str(existente.card.get("id", "")) == id_actual:
-			continue
+func _sync_graveyard_card(owner_id: String, card) -> void:
+	var holder := board.graveyard_holder(owner_id)
+	if holder == null:
+		return
 
+	var existente: CardView = null
+	for child in holder.get_children():
+		if child is CardView:
+			existente = child
+			break
+
+	if card == null:
 		if existente != null:
 			holder.remove_child(existente)
 			existente.queue_free()
+		return
 
-		var vista := CardView.new()
-		vista.show_overlays = false
-		vista.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		vista.card_clicked.connect(func(c): _open_zoom_readonly(c))
-		holder.add_child(vista)
-		vista.bind(engine, ultimo)
+	# A chave serve para não refazer a vista quando é a mesma carta
+	var chave := str(card.get("uid", card.get("id", "")))
+	if existente != null and str(existente.get_meta("grave_key", "")) == chave:
+		return
+
+	if existente != null:
+		holder.remove_child(existente)
+		existente.queue_free()
+
+	var vista := CardView.new()
+	vista.show_overlays = false
+	vista.modulate = Color(0.75, 0.72, 0.68, 1)   # esbatida: já saiu de campo
+	vista.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	vista.set_meta("grave_key", chave)
+	vista.card_clicked.connect(func(c): _open_zoom_readonly(c))
+	holder.add_child(vista)
+	vista.bind(engine, card)
 
 func _sync_slot(owner_id: String, slot_type: String, lane: int, card) -> void:
 	var holder := board.card_holder(owner_id, slot_type, lane)

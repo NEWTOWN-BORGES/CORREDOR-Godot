@@ -19,6 +19,7 @@ var _ranks: Dictionary = {}
 var _tower_fills: Dictionary = {}
 var _tower_labels: Dictionary = {}
 var _tower_bars: Dictionary = {}
+var _graveyards: Dictionary = {}
 
 var _art: TextureRect = null
 var _overlay: Control = null
@@ -56,8 +57,45 @@ func _build() -> void:
 		for slot_type in ["frente", "retaguarda"]:
 			_build_rank(owner_id, slot_type)
 		_build_tower(owner_id)
+		_build_graveyard(owner_id)
 
 	_load_art()
+
+# Cemitério ao centro, entre a barra da Torre e a linha de retaguarda —
+# o "baralho das cartas que morrem" do TABULEIRO.pdf.
+func _build_graveyard(owner_id: String) -> void:
+	var zona := Panel.new()
+	zona.name = "Graveyard_%s" % owner_id
+	zona.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var moldura := StyleBoxFlat.new()
+	moldura.bg_color = Color(Palette.ZONA_CEMITERIO, 0.25)
+	moldura.border_color = Color(Palette.ZONA_CEMITERIO, 0.85)
+	moldura.set_border_width_all(2)
+	moldura.set_corner_radius_all(6)
+	zona.add_theme_stylebox_override("panel", moldura)
+
+	var holder := Control.new()
+	holder.name = "CardHolder"
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	zona.add_child(holder)
+
+	var contador := Label.new()
+	contador.name = "Count"
+	contador.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	contador.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	contador.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	contador.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	contador.add_theme_font_size_override("font_size", 13)
+	contador.add_theme_color_override("font_color", Palette.PARCHMENT)
+	contador.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
+	contador.add_theme_constant_override("shadow_offset_y", 1)
+	contador.text = "0"
+	zona.add_child(contador)
+
+	_overlay.add_child(zona)
+	_graveyards[owner_id] = zona
 
 func _build_rank(owner_id: String, slot_type: String) -> void:
 	var rank := Control.new()
@@ -72,7 +110,8 @@ func _build_rank(owner_id: String, slot_type: String) -> void:
 		_slots[_key(owner_id, slot_type, lane)] = slot
 
 func _build_slot(owner_id: String, slot_type: String, lane: int) -> Control:
-	var apoio := BoardGeometry.is_apoio_slot(slot_type, lane)
+	var baralho := BoardGeometry.is_deck_slot(slot_type, lane)
+	var tipo_baralho := BoardGeometry.deck_kind(owner_id, lane) if baralho else ""
 
 	var slot := Panel.new()
 	slot.name = "Slot_%d" % lane
@@ -80,8 +119,9 @@ func _build_slot(owner_id: String, slot_type: String, lane: int) -> Control:
 	slot.set_meta("owner_id", owner_id)
 	slot.set_meta("slot_type", slot_type)
 	slot.set_meta("lane", lane)
-	slot.set_meta("apoio", apoio)
-	slot.add_theme_stylebox_override("panel", _slot_style(false))
+	slot.set_meta("apoio", baralho)
+	slot.set_meta("deck_kind", tipo_baralho)
+	slot.add_theme_stylebox_override("panel", _deck_style(tipo_baralho) if baralho else _slot_style(false))
 
 	# Ícone ténue por baixo, como no web (.slot-icon, opacidade 0.14)
 	var icon := Label.new()
@@ -90,15 +130,28 @@ func _build_slot(owner_id: String, slot_type: String, lane: int) -> Control:
 	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	icon.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	if apoio:
-		icon.text = "APOIO"
-		icon.add_theme_font_size_override("font_size", 9)
-		icon.add_theme_color_override("font_color", Color(Palette.PARCHMENT, 0.20))
+	icon.add_theme_font_size_override("font_size", 9)
+	if baralho:
+		icon.text = "MILITAR" if tipo_baralho == "militar" else "APOIO"
+		icon.add_theme_color_override("font_color", _deck_color(tipo_baralho))
 	else:
 		icon.text = "FRENTE" if slot_type == "frente" else "RETAGUARDA"
-		icon.add_theme_font_size_override("font_size", 9)
 		icon.add_theme_color_override("font_color", Color(Palette.PARCHMENT, 0.14))
 	slot.add_child(icon)
+
+	# Quantas cartas restam no baralho, por baixo do nome
+	if baralho:
+		var contador := Label.new()
+		contador.name = "Count"
+		contador.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		contador.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		contador.offset_top = 14
+		contador.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		contador.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		contador.add_theme_font_size_override("font_size", 13)
+		contador.add_theme_color_override("font_color", Palette.PARCHMENT)
+		contador.text = "—"
+		slot.add_child(contador)
 
 	# Onde a carta vai ser pendurada na Fase 5
 	var holder := Control.new()
@@ -109,6 +162,19 @@ func _build_slot(owner_id: String, slot_type: String, lane: int) -> Control:
 
 	slot.gui_input.connect(_on_slot_input.bind(owner_id, slot_type, lane))
 	return slot
+
+func _deck_color(kind: String) -> Color:
+	return Palette.ZONA_MILITAR if kind == "militar" else Palette.ZONA_APOIO
+
+# Moldura das zonas de baralho, nas cores com que o tabuleiro foi traçado.
+func _deck_style(kind: String) -> StyleBoxFlat:
+	var cor := _deck_color(kind)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(cor, 0.22)
+	sb.border_color = Color(cor, 0.85)
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(6)
+	return sb
 
 func _slot_style(highlighted: bool) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
@@ -199,6 +265,21 @@ func _relayout() -> void:
 		for slot_type in ["frente", "retaguarda"]:
 			_place_rank(owner_id, slot_type)
 		_place_tower(owner_id)
+		_place_graveyard(owner_id)
+
+func _place_graveyard(owner_id: String) -> void:
+	var zona: Control = _graveyards.get(owner_id)
+	if zona == null:
+		return
+	var r := BoardGeometry.graveyard_rect(owner_id, portrait)
+	zona.anchor_left = r.position.x
+	zona.anchor_top = r.position.y
+	zona.anchor_right = r.position.x + r.size.x
+	zona.anchor_bottom = r.position.y + r.size.y
+	zona.offset_left = 0.0
+	zona.offset_top = 0.0
+	zona.offset_right = 0.0
+	zona.offset_bottom = 0.0
 
 func _place_rank(owner_id: String, slot_type: String) -> void:
 	var rank: Control = _ranks.get("%s_%s" % [owner_id, slot_type])
@@ -260,6 +341,35 @@ func slot_control(owner_id: String, slot_type: String, lane: int) -> Control:
 func card_holder(owner_id: String, slot_type: String, lane: int) -> Control:
 	var slot := slot_control(owner_id, slot_type, lane)
 	return slot.get_node("CardHolder") if slot != null else null
+
+# --- Zonas do TABULEIRO.pdf --------------------------------------------
+
+# Quantas cartas restam num dos baralhos das pontas.
+func set_deck_count(owner_id: String, kind: String, count: int) -> void:
+	for lane in [BoardGeometry.LANE_ESQUERDA, BoardGeometry.LANE_DIREITA]:
+		if BoardGeometry.deck_kind(owner_id, lane) != kind:
+			continue
+		var slot := slot_control(owner_id, "retaguarda", lane)
+		if slot == null:
+			continue
+		var label := slot.get_node_or_null("Count")
+		if label != null:
+			(label as Label).text = str(count)
+
+func graveyard_zone(owner_id: String) -> Control:
+	return _graveyards.get(owner_id)
+
+func graveyard_holder(owner_id: String) -> Control:
+	var zona: Control = _graveyards.get(owner_id)
+	return zona.get_node("CardHolder") if zona != null else null
+
+func set_graveyard_count(owner_id: String, count: int) -> void:
+	var zona: Control = _graveyards.get(owner_id)
+	if zona == null:
+		return
+	var label := zona.get_node_or_null("Count")
+	if label != null:
+		(label as Label).text = str(count)
 
 func highlight_slot(owner_id: String, slot_type: String, lane: int, on: bool) -> void:
 	var slot := slot_control(owner_id, slot_type, lane)

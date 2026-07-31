@@ -126,8 +126,11 @@ func test_stats_match_engine() -> void:
 
 func test_alignment_bonus_shown() -> void:
 	print("Bónus de Alinhamento entra no ataque")
-	# ORDEM dá +1 de Ataque a cartas de custo 3 ou mais
-	var card := place("player", unit("Capitão", "GUERREIRO", 2, 4, 0, "ORDEM", 3), "frente", 3)
+	# ORDEM dá +1 de Ataque às cartas de topo. Era por custo; a Bíblia tirou o
+	# custo do sistema e o bónus passou a depender da raridade.
+	var capitao := unit("Capitão", "GUERREIRO", 2, 4, 0, "ORDEM", 3)
+	capitao["raridade"] = "RARA"
+	var card := place("player", capitao, "frente", 3)
 	game._render_board()
 
 	var vista := view_at("player", "frente", 3)
@@ -135,7 +138,7 @@ func test_alignment_bonus_shown() -> void:
 		check(false, "carta presente")
 		return
 
-	check_eq(engine.get_alignment_atk_bonus(card), 1, "motor dá +1 por ORDEM custo 3")
+	check_eq(engine.get_alignment_atk_bonus(card), 1, "motor dá +1 por ORDEM em carta Rara")
 	check_eq(vista._label_ataque.text, "3", "carta mostra 2+1 = 3")
 
 func test_pressure_marks() -> void:

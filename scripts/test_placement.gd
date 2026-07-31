@@ -46,7 +46,7 @@ func _run_tests() -> void:
 	await test_apoio_with_target_enters_targeting()
 	await test_apoio_pair_two_steps()
 	await test_equipment_targeting()
-	await test_apoio_zone_shows_last()
+	await test_graveyard_shows_last()
 	test_board_card_readonly_zoom()
 
 	print("\n--- %d passaram, %d falharam ---\n" % [_passed, _failed])
@@ -347,15 +347,15 @@ func test_equipment_targeting() -> void:
 	check_eq((alvo["equipamentos"] as Array).size(), 1, "equipamento pendurado na carta")
 	check_eq(engine.get_effective_ataque(alvo), atk_antes + 2, "ataque subiu 2")
 
-func test_apoio_zone_shows_last() -> void:
-	print("Zona de Apoio mostra o último jogado")
+func test_graveyard_shows_last() -> void:
+	print("Cemitério mostra a última carta que saiu")
 	reset_board()
 	place("player", unit("Alvo", "GUERREIRO", 2, 6), "frente", 1)
 	set_hand([apoio("AP-09", "Cântico de Aurora")])
 	game._render_game()
 
-	var holder := board.card_holder("player", "retaguarda", 0)
-	check(holder != null, "a ponta de Apoio existe")
+	var holder := board.graveyard_holder("player")
+	check(holder != null, "o cemitério existe")
 	if holder == null:
 		return
 	check_eq(holder.get_child_count(), 0, "começa vazia")
@@ -369,7 +369,7 @@ func test_apoio_zone_shows_last() -> void:
 	for child in holder.get_children():
 		if child is CardView:
 			vista = child
-	check(vista != null, "zona de Apoio mostra a carta")
+	check(vista != null, "cemitério mostra a carta")
 	if vista != null:
 		check_eq(str(vista.card.get("nome", "")), "Cântico de Aurora", "é o Apoio certo")
 		check(not vista._stat_bar.visible, "sem barra de stats, é só a arte")

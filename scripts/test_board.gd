@@ -44,6 +44,8 @@ func _run_tests() -> void:
 	test_lane_alignment()
 	test_towers()
 	test_ruined_board()
+	test_deck_zones()
+	test_graveyard_zone()
 
 	print("\n--- %d passaram, %d falharam ---\n" % [_passed, _failed])
 	tree.quit(1 if _failed > 0 else 0)
@@ -57,6 +59,14 @@ func check(condition: bool, label: String) -> void:
 	else:
 		_failed += 1
 		print("  FALHA %s" % label)
+
+func check_eq(actual, expected, label: String) -> void:
+	if actual == expected:
+		_passed += 1
+		print("  ok   %s" % label)
+	else:
+		_failed += 1
+		print("  FALHA %s  (esperado %s, obtido %s)" % [label, str(expected), str(actual)])
 
 func check_near(actual: float, expected: float, tol: float, label: String) -> void:
 	if abs(actual - expected) <= tol:
@@ -172,3 +182,53 @@ func test_ruined_board() -> void:
 
 	board.update_board_art(30, 30)
 	check(not board.is_ruined(), "recupera se as torres voltarem a subir")
+
+# ---------------------------------------------------------------- zonas do PDF
+
+func test_deck_zones() -> void:
+	print("Zonas de baralho nas pontas da retaguarda")
+	# TABULEIRO.pdf: espelhado. O jogador tem o Apoio à esquerda e o Militar
+	# à direita; a IA ao contrário.
+	check_eq(BoardGeometry.deck_kind("player", 0), "apoio", "jogador: esquerda é o Apoio")
+	check_eq(BoardGeometry.deck_kind("player", 5), "militar", "jogador: direita é o Militar")
+	check_eq(BoardGeometry.deck_kind("ai", 0), "militar", "IA: esquerda é o Militar")
+	check_eq(BoardGeometry.deck_kind("ai", 5), "apoio", "IA: direita é o Apoio")
+	check_eq(BoardGeometry.deck_kind("player", 2), "", "as colunas de combate não são baralhos")
+
+	# Continuam a não receber unidades
+	check(BoardGeometry.is_deck_slot("retaguarda", 0), "ponta 0 é baralho")
+	check(BoardGeometry.is_deck_slot("retaguarda", 5), "ponta 5 é baralho")
+	check(not BoardGeometry.is_deck_slot("retaguarda", 2), "coluna 2 não")
+	check(not BoardGeometry.is_deck_slot("frente", 0), "a frente nunca é baralho")
+
+	# O contador segue o motor
+	board.set_deck_count("player", "militar", 14)
+	board.set_deck_count("player", "apoio", 160)
+	var militar := board.slot_control("player", "retaguarda", 5)
+	var apoio := board.slot_control("player", "retaguarda", 0)
+	check_eq((militar.get_node("Count") as Label).text, "14", "Militar mostra 14")
+	check_eq((apoio.get_node("Count") as Label).text, "160", "Apoio mostra 160")
+
+func test_graveyard_zone() -> void:
+	print("Cemitério ao centro")
+	for owner_id in ["player", "ai"]:
+		var zona := board.graveyard_zone(owner_id)
+		check(zona != null, "%s tem cemitério" % owner_id)
+		check(board.graveyard_holder(owner_id) != null, "%s tem onde pendurar a carta" % owner_id)
+
+	# Centrado, e de cada lado do tabuleiro
+	var r_player := BoardGeometry.graveyard_rect("player", false)
+	var r_ai := BoardGeometry.graveyard_rect("ai", false)
+	check_near(r_player.position.x + r_player.size.x * 0.5, 0.5, 0.001, "centrado na horizontal")
+	check(r_ai.position.y < 0.25, "o da IA fica em cima (%.2f)" % r_ai.position.y)
+	check(r_player.position.y > 0.75, "o do jogador fica em baixo (%.2f)" % r_player.position.y)
+
+	# Não colide com as faixas de retaguarda
+	var ret_ai := BoardGeometry.rank_rect("ai", "retaguarda", false)
+	var ret_player := BoardGeometry.rank_rect("player", "retaguarda", false)
+	check(r_ai.position.y + r_ai.size.y <= ret_ai.position.y, "o da IA fica acima da retaguarda")
+	check(r_player.position.y >= ret_player.position.y + ret_player.size.y, "o do jogador fica abaixo")
+
+	board.set_graveyard_count("player", 7)
+	var label := board.graveyard_zone("player").get_node("Count") as Label
+	check_eq(label.text, "7", "contador mostra 7")

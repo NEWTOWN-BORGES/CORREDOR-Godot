@@ -13,6 +13,11 @@ class_name DeckManager
 # originais de cartas.json, senão os dois jogadores partilhariam o mesmo
 # objecto e marcar `isApoio` num contaminaria o outro.
 
+# A Bíblia fixa o Baralho de Apoio em três categorias. Construções, Climas e
+# Bênçãos foram removidos do conjunto — a arte fica no disco, só não entra no
+# baralho.
+const CATEGORIAS_APOIO := ["Equipamento", "Magia", "Consumível"]
+
 static func build_faction_deck(cartas: Dictionary, faccao_slug: String) -> Dictionary:
 	var militar := []
 	for c in cartas.get("unidades", []):
@@ -20,8 +25,8 @@ static func build_faction_deck(cartas: Dictionary, faccao_slug: String) -> Dicti
 			var copia: Dictionary = c.duplicate(true)
 			copia["isApoio"] = false
 			militar.append(copia)
-	# Do mais barato para o mais caro: os primeiros reforços são os mais leves
-	militar.sort_custom(func(a, b): return int(a.get("custo", 0)) < int(b.get("custo", 0)))
+	# Sem custo no sistema, o Baralho Militar é só baralhado — o motor trata
+	# disso no _make_player_state.
 
 	var mao := []
 	for c in cartas.get("apoios", []):
@@ -30,10 +35,13 @@ static func build_faction_deck(cartas: Dictionary, faccao_slug: String) -> Dicti
 			copia["isApoio"] = true
 			mao.append(copia)
 	for c in cartas.get("taticos", []):
-		if str(c.get("faccao_slug", "")) == faccao_slug:
-			var copia: Dictionary = c.duplicate(true)
-			copia["isApoio"] = false
-			mao.append(copia)
+		if str(c.get("faccao_slug", "")) != faccao_slug:
+			continue
+		if not CATEGORIAS_APOIO.has(str(c.get("tipo_tatico", ""))):
+			continue
+		var copia: Dictionary = c.duplicate(true)
+		copia["isApoio"] = false
+		mao.append(copia)
 
 	return {"militar": militar, "mao": mao}
 

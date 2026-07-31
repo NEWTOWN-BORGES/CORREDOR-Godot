@@ -27,11 +27,11 @@ func _init(a_owner_id: String = "ai") -> void:
 
 # ---------------------------------------------------------------- avaliação
 
+# Sem custo no sistema: ataque a dobrar, mais vida e escudo.
 func score_unit(card_def: Dictionary) -> float:
 	return float(card_def.get("ataque", 0)) * 2.0 \
 		+ float(card_def.get("vida", 0)) \
-		+ float(card_def.get("escudo", 0)) \
-		- float(card_def.get("custo", 0)) * 0.2
+		+ float(card_def.get("escudo", 0))
 
 # Do centro do tabuleiro para fora. A retaguarda só usa as colunas de
 # combate (1-4); as pontas são de Apoio.
@@ -203,11 +203,9 @@ func plan_tatico(engine: Game, carta: Dictionary) -> Dictionary:
 			return _plan_magia(engine, carta)
 		"Consumível":
 			return _plan_consumivel(engine, carta)
-		"Bênção":
-			return _plan_bencao(engine, carta)
 		_:
-			# Construção e Clima ainda não têm efeito nenhum no motor — no web
-			# também não tinham. Não vale a pena gastar jogadas com elas.
+			# As outras categorias saíram do Baralho de Apoio; se aparecer
+			# alguma, guarda-se em vez de a desperdiçar.
 			return {}
 
 # Equipamento vai para quem mais lucra: bónus de ataque no que bate mais
@@ -286,17 +284,6 @@ func _plan_consumivel(engine: Game, carta: Dictionary) -> Dictionary:
 	if melhor == null or maior_falta * 2 < cura:
 		return {}
 	return {"target": melhor}
-
-# Bênção dá +2 de Ataque só até ao fim do turno, por isso só serve numa
-# carta que vá mesmo atacar já.
-func _plan_bencao(engine: Game, _carta: Dictionary) -> Dictionary:
-	var melhor = null
-	for c in engine.allies(owner_id):
-		if not engine._can_act(c):
-			continue
-		if melhor == null or engine.get_effective_ataque(c) > engine.get_effective_ataque(melhor):
-			melhor = c
-	return {"target": melhor} if melhor != null else {}
 
 # ---------------------------------------------------------------- reforços
 

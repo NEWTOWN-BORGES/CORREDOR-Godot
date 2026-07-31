@@ -30,7 +30,7 @@ func _run_tests() -> void:
 	# é o TestAI.
 	game.ai = null
 	engine = game.engine
-	board = game.get_node("VBoxContainer/Middle/BoardArea/Board")
+	board = game.get_node("BoardArea/Board")
 	await tree.process_frame
 
 	test_combat_runs_when_both_pass()

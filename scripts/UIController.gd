@@ -36,17 +36,17 @@ var _pending_apoio: Dictionary = {}     # hand_index, def, card_def, pair_from
 var _pending_tactico: Dictionary = {}   # index, card_def
 var _busy: bool = false
 
-@onready var hand_container: HBoxContainer = $VBoxContainer/HandRow/Hand/HandContainer
-@onready var hud_label: Label = $VBoxContainer/TopRow/HUD
-@onready var music_button: Button = $VBoxContainer/TopRow/ButtonMusic
-@onready var pass_button: Button = $VBoxContainer/HandRow/ButtonPass
-@onready var board_area: AspectRatioContainer = $VBoxContainer/Middle/BoardArea
-@onready var board: BoardRenderer = $VBoxContainer/Middle/BoardArea/Board
+@onready var hand_container: HBoxContainer = $HandRow/Hand/HandContainer
+@onready var hud_label: Label = $TopRow/HUD
+@onready var music_button: Button = $TopRow/ButtonMusic
+@onready var pass_button: Button = $HandRow/ButtonPass
+@onready var board_area: AspectRatioContainer = $BoardArea
+@onready var board: BoardRenderer = $BoardArea/Board
 
-@onready var reinforcement_panel: PanelContainer = $VBoxContainer/Middle/ReinforcementPanel
-@onready var reinforcement_slots: VBoxContainer = $VBoxContainer/Middle/ReinforcementPanel/Column/Slots
-@onready var reinforcement_count: Label = $VBoxContainer/Middle/ReinforcementPanel/Column/Count
-@onready var reinforcement_title: Label = $VBoxContainer/Middle/ReinforcementPanel/Column/Title
+@onready var reinforcement_panel: PanelContainer = $ReinforcementPanel
+@onready var reinforcement_slots: VBoxContainer = $ReinforcementPanel/Column/Slots
+@onready var reinforcement_count: Label = $ReinforcementPanel/Column/Count
+@onready var reinforcement_title: Label = $ReinforcementPanel/Column/Title
 
 # Qual reforço está escolhido para entrar em campo (-1 = nenhum)
 var _selected_reinforcement: int = -1
@@ -81,6 +81,29 @@ func _ready() -> void:
 	_render_game()
 	pass_button.pressed.connect(_on_pass)
 	Sfx.start_music()
+
+# F11 alterna ecrã cheio, Esc devolve à janela — para não ficar preso.
+func _unhandled_input(event: InputEvent) -> void:
+	if not (event is InputEventKey) or not event.pressed or event.echo:
+		return
+	var tecla := (event as InputEventKey).keycode
+	if tecla == KEY_F11:
+		_toggle_fullscreen()
+		get_viewport().set_input_as_handled()
+	elif tecla == KEY_ESCAPE and _is_fullscreen():
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+		get_viewport().set_input_as_handled()
+
+func _is_fullscreen() -> bool:
+	var modo := DisplayServer.window_get_mode()
+	return modo == DisplayServer.WINDOW_MODE_FULLSCREEN \
+		or modo == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
+
+func _toggle_fullscreen() -> void:
+	if _is_fullscreen():
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	else:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 
 # As cartas vêm do autoload Cards (scripts/CardLoader.gd), que também serve
 # as texturas a pedido — ver Fase 2.
@@ -342,11 +365,14 @@ func _render_hand() -> void:
 		hand_container.add_child(_make_hand_card(mao[i], i))
 
 func _make_hand_card(card_def: Dictionary, index: int) -> Control:
-	var altura := 132.0
+	var altura := 158.0
 	var largura := altura * (750.0 / 1050.0)
 
 	var vista := CardView.new()
 	vista.show_overlays = false
+	# As cartas sobrepõem-se; o realce ao passar o rato levanta a de baixo do
+	# rato para se poder ler, como no Gwent.
+	vista.hover_enabled = true
 	vista.custom_minimum_size = Vector2(largura, altura)
 	vista.modulate = Color(1, 1, 1, 1) if is_hand_card_playable(card_def) else Color(0.55, 0.55, 0.55, 1)
 	vista.card_clicked.connect(func(_c): _on_hand_card_click(index))

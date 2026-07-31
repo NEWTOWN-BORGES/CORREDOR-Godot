@@ -26,7 +26,7 @@ func _run_tests() -> void:
 	game.set_animation_speed(0.0)
 	game.ai = null
 	engine = game.engine
-	board = game.get_node("VBoxContainer/Middle/BoardArea/Board")
+	board = game.get_node("BoardArea/Board")
 	await tree.process_frame
 
 	test_start_state()

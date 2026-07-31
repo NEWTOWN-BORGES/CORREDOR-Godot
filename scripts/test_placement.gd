@@ -32,7 +32,7 @@ func _run_tests() -> void:
 	# verificação — falhava ao calhar, conforme as cartas que lhe saíam.
 	game.ai = null
 	engine = game.engine
-	board = game.get_node("VBoxContainer/Middle/BoardArea/Board")
+	board = game.get_node("BoardArea/Board")
 	await tree.process_frame
 
 	test_zoom_opens_and_closes()

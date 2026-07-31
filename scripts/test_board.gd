@@ -24,7 +24,7 @@ func _run_tests() -> void:
 	Session.set_match("reinos", "coro")
 	game = load("res://scenes/Game.tscn").instantiate()
 	add_child(game)
-	board = game.get_node("VBoxContainer/Middle/BoardArea/Board")
+	board = game.get_node("BoardArea/Board")
 
 	# Desde a Fase 9 as barras das Torres descem animadas e as casas válidas
 	# pulsam. A zero, vão directas ao valor final e não fica nenhum ciclo

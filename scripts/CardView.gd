@@ -39,6 +39,19 @@ var engine: Game = null
 # Nas casas de Apoio o web esconde stats e Pressão (.slot-apoio .cstat-bar)
 var show_overlays: bool = true
 
+# --- Realce ao passar o rato, ao estilo Gwent ------------------------------
+# Na mão as cartas sobrepõem-se; passar o rato levanta a carta e amplia-a
+# para se poder ler sem ter de clicar.
+var hover_enabled: bool = false
+const HOVER_LIFT := 46.0
+const HOVER_SCALE := 1.42
+const HOVER_TIME := 0.14
+
+var _hover_tween: Tween = null
+var _base_position := Vector2.ZERO
+var _base_z := 0
+var _hovering := false
+
 var _art: TextureRect = null
 var _pressure_row: HBoxContainer = null
 var _stat_bar: Control = null
@@ -52,8 +65,42 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_build()
 	resized.connect(_relayout)
+	if hover_enabled:
+		mouse_entered.connect(_on_hover_start)
+		mouse_exited.connect(_on_hover_end)
 	if not card.is_empty():
 		refresh()
+
+# --- Realce ao passar o rato ---------------------------------------------
+
+func _on_hover_start() -> void:
+	if _hovering:
+		return
+	_hovering = true
+	# Guarda o sítio de origem à primeira vez: o contentor já a colocou
+	_base_position = position
+	_base_z = z_index
+
+	# Por cima das vizinhas, senão a ampliação fica cortada pelas de cima
+	z_index = 100
+	pivot_offset = Vector2(size.x * 0.5, size.y)   # cresce a partir da base
+
+	_animate_hover(_base_position + Vector2(0, -HOVER_LIFT), Vector2(HOVER_SCALE, HOVER_SCALE))
+
+func _on_hover_end() -> void:
+	if not _hovering:
+		return
+	_hovering = false
+	_animate_hover(_base_position, Vector2.ONE)
+	z_index = _base_z
+
+func _animate_hover(destino: Vector2, escala: Vector2) -> void:
+	if _hover_tween != null and _hover_tween.is_valid():
+		_hover_tween.kill()
+	_hover_tween = create_tween()
+	_hover_tween.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	_hover_tween.tween_property(self, "position", destino, HOVER_TIME)
+	_hover_tween.parallel().tween_property(self, "scale", escala, HOVER_TIME)
 
 # A carta entra a crescer e a aparecer (.card-el.entering do web).
 func play_enter_animation(speed: float = 1.0) -> void:

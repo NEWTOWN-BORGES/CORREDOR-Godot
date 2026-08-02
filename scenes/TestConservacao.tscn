@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://d1testconservacaocorredor"]
+
+[ext_resource type="Script" path="res://scripts/test_conservacao.gd" id="1_test"]
+
+[node name="TestConservacao" type="Node"]
+script = ExtResource("1_test")

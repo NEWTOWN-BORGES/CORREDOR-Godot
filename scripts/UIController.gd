@@ -347,6 +347,10 @@ func _sync_slot(owner_id: String, slot_type: String, lane: int, card) -> void:
 
 	var uid := str(card.get("uid", ""))
 	if existente != null and str(existente.card.get("uid", "")) == uid:
+		# Uma carta que está no tabuleiro tem de estar visível. Se uma animação
+		# interrompida a deixou transparente ou encolhida, é aqui que se
+		# conserta — senão ficava assim até morrer.
+		existente.ensure_visible()
 		existente.refresh()
 		return
 

@@ -430,24 +430,39 @@ func damage_tower(target_owner_id: String, amount: int) -> void:
 	_log("A Torre de %s leva %d de dano. (%d/%d)" % [_side_name(target_owner_id), amount, towers[target_owner_id], TOWER_MAX])
 	_check_win()
 
-func add_pressure_mark(card: Dictionary, delta: int) -> void:
+# Os mutadores a seguir são chamados pelas habilidades das cartas, onde o alvo
+# pode chegar a null — Apoio jogado sem alvo escolhido, ou alvo que morreu
+# entretanto. O parâmetro fica SEM TIPO de propósito: declarado como
+# Dictionary, o GDScript aborta a habilidade a meio e a carta é gasta sem
+# fazer efeito nenhum. O heal() abaixo já era assim; os outros não eram.
+func add_pressure_mark(card, delta: int) -> void:
+	if card == null:
+		return
 	card["pressaoMarcas"] = max(0, int(card["pressaoMarcas"]) + delta)
 
-func add_atk_mod(card: Dictionary, delta: int) -> void:
+func add_atk_mod(card, delta: int) -> void:
+	if card == null:
+		return
 	card["tempBuffAtk"] = int(card["tempBuffAtk"]) + delta
 
-func perm_buff(card: Dictionary, atk: int, vida: int) -> void:
+func perm_buff(card, atk: int, vida: int) -> void:
+	if card == null:
+		return
 	card["permBuffAtk"] = int(card["permBuffAtk"]) + atk
 	card["permBuffVida"] = int(card["permBuffVida"]) + vida
 	card["vidaAtual"] = int(card["vidaAtual"]) + vida
 
-func reduce_vida_maxima(card: Dictionary, n: int) -> void:
+func reduce_vida_maxima(card, n: int) -> void:
+	if card == null:
+		return
 	card["permVidaMaxLoss"] = int(card["permVidaMaxLoss"]) + n
 	card["vidaMaxima"] = get_vida_maxima(card)
 	if card["vidaAtual"] > card["vidaMaxima"]:
 		card["vidaAtual"] = card["vidaMaxima"]
 
-func add_shield(card: Dictionary, n: int) -> void:
+func add_shield(card, n: int) -> void:
+	if card == null:
+		return
 	card["escudoAtual"] = int(card["escudoAtual"]) + n
 
 func heal(card, n: int) -> void:
@@ -458,12 +473,16 @@ func heal(card, n: int) -> void:
 	card["vidaAtual"] = min(int(card["vidaMaxima"]), int(card["vidaAtual"]) + n)
 	_emit_ally_healed(card)
 
-func clear_negative_effects(card: Dictionary) -> void:
+func clear_negative_effects(card) -> void:
+	if card == null:
+		return
 	card["tempBuffAtk"] = max(0, int(card["tempBuffAtk"]))
 	card["pressureLocked"] = 0
 	card["_laneDebuffTemp"] = 0
 
-func move_card(card: Dictionary, slot_type: String, slot_index: int) -> void:
+func move_card(card, slot_type: String, slot_index: int) -> void:
+	if card == null:
+		return
 	var p: Dictionary = players[card["ownerId"]]
 	var from_arr: Array = p["back"] if card["slotType"] == "retaguarda" else p["front"]
 	var to_arr: Array = p["back"] if slot_type == "retaguarda" else p["front"]
@@ -483,7 +502,9 @@ func apoio_mult() -> int:
 func block_apoios(owner_id: String) -> void:
 	players[owner_id]["apoiosBlockedNextRound"] = true
 
-func force_rupture(card: Dictionary) -> void:
+func force_rupture(card) -> void:
+	if card == null:
+		return
 	card["forcedRupture"] = true
 
 # AP-26: o último morto volta — agora à reserva de reforços, não à mão.
@@ -515,6 +536,17 @@ func return_last_dead_to_hand(owner_id: String) -> void:
 		"escudo": 0,
 		"isApoio": false
 	})
+	# A unidade volta "limpa", como definição de carta — o Equipamento que
+	# levava não regressa com ela, por isso vai para o descarte. Sem isto as
+	# cartas de Equipamento desapareciam do jogo com o cadáver.
+	for equip in (last.get("equipamentos", []) as Array):
+		p["discard"].append(equip)
+
+	# Sai do cemitério: se voltasse à reserva e ficasse lá, passava a existir
+	# duas vezes — o contador do cemitério subia sozinho e as habilidades que
+	# contam os teus mortos ("+1 de Ataque por cada carta tua que já morreu")
+	# ficavam inflacionadas.
+	(p["graveyard"] as Array).erase(last)
 	p["lastDeadCard"] = null
 	_log("%s volta à reserva." % last["nome"])
 
@@ -665,12 +697,29 @@ func _resolve_apoio(owner_id: String, hand_index: int, card_def: Dictionary, tar
 	if def.is_empty():
 		return {"ok": false, "error": "apoio desconhecido"}
 
+	# needsTarget é null ou String — sem tipo inferido, senão o Godot recusa
+	var needs = def.get("needsTarget")
+
+	# Validar ANTES de tirar a carta da mão. Sem isto, um Apoio que precisa de
+	# alvo e não o recebe era gasto na mesma e a habilidade rebentava a meio
+	# (Cannot convert argument from Nil to Dictionary), ficando sem efeito.
+	# É a mesma guarda que o Equipamento já fazia em _resolve_tatico.
+	if needs == "allyPair":
+		if target_spec.get("from") == null or target_spec.get("to") == null:
+			return {"ok": false, "error": "escolhe as duas cartas", "needsTarget": needs}
+	elif needs != null:
+		var alvo = target_spec.get("target")
+		if alvo == null:
+			return {"ok": false, "error": "esta carta precisa de um alvo", "needsTarget": needs}
+		if needs == "ally" and str(alvo.get("ownerId", "")) != owner_id:
+			return {"ok": false, "error": "o alvo tem de ser teu", "needsTarget": needs}
+		if needs == "enemy" and str(alvo.get("ownerId", "")) == owner_id:
+			return {"ok": false, "error": "o alvo tem de ser inimigo", "needsTarget": needs}
+
 	p["hand"].remove_at(hand_index)
 	_current_apoio_mult = 2 if p["apoioDoubleNext"] else 1
 	p["apoioDoubleNext"] = false
 
-	# needsTarget é null ou String — sem tipo inferido, senão o Godot recusa
-	var needs = def.get("needsTarget")
 	if needs == "allyPair":
 		abilities.run_apoio(self, apoio_id, owner_id, target_spec.get("from"), target_spec.get("to"))
 	else:
@@ -770,7 +819,10 @@ func _resolve_tatico(owner_id: String, hand_index: int, card_def: Dictionary, ta
 				"ownerId": owner_id,
 				"nome": card_def.get("nome", ""),
 				"tipo_tatico": "Clima",
-				"turnosRestantes": int(card_def.get("duracao_turnos", 2))
+				"turnosRestantes": int(card_def.get("duracao_turnos", 2)),
+				# Guarda a carta de origem: quando o Clima expira tem de ir
+				# para o descarte, senão desaparecia do jogo.
+				"cardDef": card_def
 			})
 			_log("%s ativaste o Clima %s." % [_side_name(owner_id), card_def.get("nome", "")])
 		"Bênção":
@@ -1133,7 +1185,8 @@ func _end_of_round() -> void:
 			add_pressure_mark(c, 1)
 		c["cannotDieThisRound"] = false
 
-	# Clima expira
+	# Clima expira — e a carta vai para o descarte, como qualquer Apoio gasto.
+	# Sem isto era só apagada da lista e sumia do jogo.
 	for owner_id in ["player", "ai"]:
 		var active: Array = players[owner_id]["activeTactics"]
 		for i in range(active.size() - 1, -1, -1):
@@ -1141,6 +1194,10 @@ func _end_of_round() -> void:
 			if t.get("tipo_tatico", "") == "Clima":
 				t["turnosRestantes"] = int(t.get("turnosRestantes", 0)) - 1
 				if int(t["turnosRestantes"]) <= 0:
+					var origem = t.get("cardDef")
+					if origem != null:
+						players[owner_id]["discard"].append(origem)
+						players[owner_id]["lastApoio"] = origem
 					active.remove_at(i)
 
 	if _check_win():

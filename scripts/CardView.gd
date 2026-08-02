@@ -102,9 +102,23 @@ func _animate_hover(destino: Vector2, escala: Vector2) -> void:
 	_hover_tween.tween_property(self, "position", destino, HOVER_TIME)
 	_hover_tween.parallel().tween_property(self, "scale", escala, HOVER_TIME)
 
+# Repõe a carta totalmente visível. Serve de rede: as animações de entrada e
+# de morte deixam a carta transparente ou encolhida, e se forem interrompidas
+# (a vista sai da árvore, o tween morre) ela ficava invisível para sempre —
+# a carta "desaparecia" do tabuleiro sem ter morrido.
+func ensure_visible() -> void:
+	if modulate.a < 1.0:
+		modulate = Color(1, 1, 1, 1)
+	if not scale.is_equal_approx(Vector2.ONE):
+		scale = Vector2.ONE
+
 # A carta entra a crescer e a aparecer (.card-el.entering do web).
 func play_enter_animation(speed: float = 1.0) -> void:
-	if speed <= 0.0:
+	# Fora da árvore não há tween a correr para devolver a opacidade, por isso
+	# nunca se põe a carta invisível: mais vale entrar sem animação do que
+	# arriscar que fique assim.
+	if speed <= 0.0 or not is_inside_tree():
+		ensure_visible()
 		return
 	pivot_offset = size * 0.5
 	scale = Vector2(0.4, 0.4)
@@ -113,6 +127,8 @@ func play_enter_animation(speed: float = 1.0) -> void:
 	tw.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
 	tw.tween_property(self, "scale", Vector2.ONE, 0.35 / speed)
 	tw.parallel().tween_property(self, "modulate", Color(1, 1, 1, 1), 0.35 / speed)
+	# Garante o estado final mesmo que o tween seja cortado a meio.
+	tw.finished.connect(ensure_visible)
 
 # ---------------------------------------------------------------- construção
 

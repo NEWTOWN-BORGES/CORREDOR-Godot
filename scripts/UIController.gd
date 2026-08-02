@@ -252,6 +252,20 @@ func _render_board() -> void:
 	board.set_tower("player", int(engine.towers["player"]))
 	board.set_tower("ai", int(engine.towers["ai"]))
 	board.update_board_art(int(engine.towers["player"]), int(engine.towers["ai"]))
+	_watch_tower_alert()
+
+# Toca o aviso na primeira vez que a minha Torre entra em perigo — uma vez
+# só, senão soava a cada render.
+var _alerta_dado := false
+
+func _watch_tower_alert() -> void:
+	var limite := float(Game.TOWER_MAX) * BoardGeometry.RUINED_THRESHOLD
+	var em_perigo := float(engine.towers["player"]) <= limite
+	if em_perigo and not _alerta_dado:
+		_alerta_dado = true
+		Sfx.alerta()
+	elif not em_perigo:
+		_alerta_dado = false
 
 # As pontas da retaguarda são os dois baralhos, como no TABULEIRO.pdf:
 # o jogador tem o Apoio à esquerda e o Militar à direita, a IA ao contrário.
@@ -373,6 +387,7 @@ func _make_hand_card(card_def: Dictionary, index: int) -> Control:
 	# As cartas sobrepõem-se; o realce ao passar o rato levanta a de baixo do
 	# rato para se poder ler, como no Gwent.
 	vista.hover_enabled = true
+	vista.mouse_entered.connect(func(): Sfx.realce())
 	vista.custom_minimum_size = Vector2(largura, altura)
 	vista.modulate = Color(1, 1, 1, 1) if is_hand_card_playable(card_def) else Color(0.55, 0.55, 0.55, 1)
 	vista.card_clicked.connect(func(_c): _on_hand_card_click(index))
@@ -685,6 +700,7 @@ func _play_apoio(idx: int, spec: Dictionary) -> void:
 
 func _confirm_tactico_target(target_card: Dictionary) -> void:
 	var idx: int = int(_pending_tactico["index"])
+	Sfx.equipar()
 	await _play_hand_card(idx, {"targetCard": target_card})
 
 # ---------------------------------------------------------------- alvos
@@ -789,10 +805,18 @@ func _run_action(action: Callable) -> void:
 	_render_hud()
 
 	var combates_antes: int = engine.combat_counter
+	var turno_antes: int = engine.current_round
 	action.call()
 
 	if engine.combat_counter != combates_antes and not engine.combat_steps.is_empty():
 		await _animate_combat(engine.combat_steps)
+
+	# Sino a marcar a passagem de turno, e o reforço que o Baralho Militar
+	# largou a seguir ao combate
+	if engine.current_round != turno_antes:
+		Sfx.turno()
+		if engine.reinforcement_count("player") > 0:
+			Sfx.reforco()
 
 	_render_game()
 	_busy = false
@@ -843,7 +867,10 @@ func _animate_siege(step: Dictionary) -> void:
 		await _lunge(atacante, centro_torre)
 
 	board.set_tower(dono, int(step.get("towerAfter", 0)))
-	Sfx.cerco()
+	if str(step.get("type", "")) == "rupture":
+		Sfx.ruptura()
+	else:
+		Sfx.cerco()
 	if barra != null:
 		fx_layer.float_number(barra.global_position + barra.size * 0.5,
 			"-%d" % int(step.get("amount", 0)), "dano")

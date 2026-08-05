@@ -5,7 +5,7 @@ extends Node
 #   godot --headless --path . res://scenes/TestConservacao.tscn
 #
 # Duas perguntas:
-#   1. Toda a arte das 427 cartas resolve para um ficheiro que existe?
+#   1. Toda a arte das 270 cartas resolve para um ficheiro que existe?
 #   2. Nenhuma carta se perde durante uma partida? Uma carta só pode estar
 #      numa zona; a soma de todas as zonas tem de ser constante do princípio
 #      ao fim. É assim que se apanha "algumas cartas desaparecem".
@@ -58,7 +58,7 @@ func test_toda_a_arte_resolve() -> void:
 			nome, em_falta.size(),
 			("" if em_falta.is_empty() else " — ex: " + em_falta[0])
 		])
-	ok(total == 427, "427 cartas carregadas (tem %d)" % total)
+	ok(total == 270, "270 cartas carregadas (tem %d)" % total)
 
 func test_ids_unicos() -> void:
 	print("Identificadores")

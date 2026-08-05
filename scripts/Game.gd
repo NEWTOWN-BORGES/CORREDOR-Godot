@@ -1,37 +1,41 @@
 extends RefCounted
 class_name Game
 
-# Motor de jogo — CORREDOR (v5, sistema de reforços)
+# Motor de jogo — CORREDOR (Game Design Bible v1.0)
 #
-#   - Uma só mão, de 5 cartas: Apoios e Táticas. Custam 0 e jogar uma não
+#   - Uma só mão, de 10 cartas: Apoios. Custam 0 e jogar uma não
 #     passa a prioridade ao adversário.
-#   - O Baralho Militar está oculto e larga 1 reforço por turno, até 3
-#     guardados. Um reforço entra em qualquer casa válida livre, e é isso que
-#     passa a prioridade. Sem reserva não há unidades — guardar ou gastar é a
-#     decisão do jogo.
-#   - Jogo alternado ao estilo Gwent, até ambos passarem.
-#   - Tabuleiro: 6 colunas na frente (Tanque/Guerreiro). Retaguarda tem 4
-#     colunas de combate (1-4); as colunas 0 e 5 são os dois baralhos.
+#   - O Baralho Militar está oculto. Quando uma unidade morre, ganha-se
+#     1 reforço da reserva (máx 5). Um reforço entra em qualquer casa válida
+#     livre — é isso que passa a prioridade.
+#   - Jogo alternado, até ambos passarem.
+#   - Tabuleiro: 6 colunas na Frente (Guerreiro/Tanque/Lanceiro).
+#     Retaguarda tem 4 colunas de combate (1-4); as colunas 0 e 5 são baralhos.
 #   - Sem custo, mana ou energia. Sem matriz global de tipos.
-#   - Cada jogador tem a sua Torre (30 de vida). Coluna limpa → ataque à Torre.
-#   - Pressão/Ruptura e invocação lenta (Assassino ataca já ao entrar).
+#   - Cada jogador tem a sua Torre (100 PV). Coluna limpa → ataque à Torre.
+#   - 3 Ações Táticas por turno para Arqueiros, Sacerdotes e habilidades ativas.
+#   - Ordem de ataque determinada pela ordem de entrada em campo (entryOrder).
 
-const FRONT_ROLES := ["TANQUE", "GUERREIRO"]
-const BACK_ROLES := ["ASSASSINO", "CURADOR", "ATIRADOR"]
+# Frente: Guerreiro, Tanque, Lanceiro
+const FRONT_ROLES := ["GUERREIRO", "TANQUE", "LANCEIRO"]
+# Retaguarda: Assassino, Atirador, Mago, Curador/Sacerdote, Suporte
+const BACK_ROLES := ["ASSASSINO", "ATIRADOR", "CURADOR", "MAGO", "SACERDOTE", "SUPORTE"]
 const FRONT_LANES := 6
 const BACK_LANES := [1, 2, 3, 4]
-const TOWER_MAX := 30
+const TOWER_MAX := 100
 const ROUND_LIMIT := 12
+const TACTICAL_ACTIONS_PER_TURN := 3
 
-# Sistema de reforços: o Baralho Militar está oculto e larga 1 reforço por
-# turno, até um máximo guardado. Guardar ou gastar é a decisão do jogador —
-# se a reserva estiver cheia, o reforço do turno seguinte perde-se.
-const MAX_REFORCOS := 3
+# Sistema de reforços: o Baralho Militar está oculto.
+# Sempre que uma unidade é destruída, ganha-se 1 carta da Reserva Militar.
+# Capacidade máxima: 5 cartas. Reserva cheia = próximo reforço perde-se.
+const MAX_REFORCOS := 5
 const REFORCO_POR_TURNO := 1
 const REFORCOS_INICIAIS := 3
 
-# A mão é uma só: Apoios + Táticas.
-const MAO_MAX := 5
+# A mão é uma só: Apoios. Máximo 4 — a facção com menos Apoios (Despertos) só
+# tem 4 no total; um tecto maior nunca seria alcançável para essa facção.
+const MAO_MAX := 4
 
 const FAMILY_A := ["ORDEM", "PUREZA"]
 const FAMILY_B := ["SELVA", "MAGIA"]
@@ -53,6 +57,12 @@ var combat_steps: Array = []
 # porque dois combates seguidos podem ter o mesmo número de passos.
 var combat_counter: int = 0
 var players: Dictionary = {}
+
+# Ações Táticas por turno (3/turno): usadas para Arqueiros, Sacerdotes, etc.
+var tactical_actions: Dictionary = {"player": 0, "ai": 0}
+
+# Contador global de entrada em campo — determina a ordem de ataque.
+var _entry_order_counter: int = 0
 
 var abilities: AbilityDispatcher = null
 
@@ -142,17 +152,17 @@ func _compute_cohesion_broken(deck: Array) -> bool:
 
 func _make_player_state(military_deck: Array, hand_deck: Array) -> Dictionary:
 	return {
-		# Baralho Militar — oculto, larga reforços
+		# Baralho Militar — oculto, larga reforços quando uma unidade morre
 		"militaryDeck": _shuffle(military_deck),
 		"reinforcements": [],
 		"graveyard": [],
 
-		# A única mão: Apoios + Táticas
+		# A única mão: Apoios (máx 10 cartas)
 		"deck": _shuffle(hand_deck),
 		"hand": [],
 		"discard": [],
 
-		# Tabuleiro
+		# Tabuleiro: Frente 6 slots, Retaguarda 6 slots (0 e 5 são baralhos)
 		"front": [null, null, null, null, null, null],
 		"back": [null, null, null, null, null, null],
 		"activeTactics": [],
@@ -238,6 +248,15 @@ func pick_lowest_vida_enemy(owner_id: String) -> Variant:
 		if not _targetable(c, true):
 			continue
 		if best == null or c["vidaAtual"] < best["vidaAtual"]:
+			best = c
+	return best
+
+func pick_highest_vida_enemy(owner_id: String) -> Variant:
+	var best = null
+	for c in enemies(owner_id):
+		if not _targetable(c, true):
+			continue
+		if best == null or c["vidaAtual"] > best["vidaAtual"]:
 			best = c
 	return best
 
@@ -431,39 +450,53 @@ func damage_tower(target_owner_id: String, amount: int) -> void:
 	_check_win()
 
 func add_pressure_mark(card: Dictionary, delta: int) -> void:
+	if card == null or typeof(card) != TYPE_DICTIONARY:
+		return
 	card["pressaoMarcas"] = max(0, int(card["pressaoMarcas"]) + delta)
 
 func add_atk_mod(card: Dictionary, delta: int) -> void:
+	if card == null or typeof(card) != TYPE_DICTIONARY:
+		return
 	card["tempBuffAtk"] = int(card["tempBuffAtk"]) + delta
 
 func perm_buff(card: Dictionary, atk: int, vida: int) -> void:
+	if card == null or typeof(card) != TYPE_DICTIONARY:
+		return
 	card["permBuffAtk"] = int(card["permBuffAtk"]) + atk
 	card["permBuffVida"] = int(card["permBuffVida"]) + vida
 	card["vidaAtual"] = int(card["vidaAtual"]) + vida
 
 func reduce_vida_maxima(card: Dictionary, n: int) -> void:
+	if card == null or typeof(card) != TYPE_DICTIONARY:
+		return
 	card["permVidaMaxLoss"] = int(card["permVidaMaxLoss"]) + n
 	card["vidaMaxima"] = get_vida_maxima(card)
 	if card["vidaAtual"] > card["vidaMaxima"]:
 		card["vidaAtual"] = card["vidaMaxima"]
 
-func add_shield(card: Dictionary, n: int) -> void:
+func add_shield(card, n: int) -> void:
+	if card == null or typeof(card) != TYPE_DICTIONARY:
+		return
 	card["escudoAtual"] = int(card["escudoAtual"]) + n
 
 func heal(card, n: int) -> void:
-	if card == null:
+	if card == null or typeof(card) != TYPE_DICTIONARY:
 		return
 	if int(card["vidaAtual"]) <= 0 or card.get("cannotBeHealed", false):
 		return
 	card["vidaAtual"] = min(int(card["vidaMaxima"]), int(card["vidaAtual"]) + n)
 	_emit_ally_healed(card)
 
-func clear_negative_effects(card: Dictionary) -> void:
+func clear_negative_effects(card) -> void:
+	if card == null or typeof(card) != TYPE_DICTIONARY:
+		return
 	card["tempBuffAtk"] = max(0, int(card["tempBuffAtk"]))
 	card["pressureLocked"] = 0
 	card["_laneDebuffTemp"] = 0
 
-func move_card(card: Dictionary, slot_type: String, slot_index: int) -> void:
+func move_card(card, slot_type: String, slot_index: int) -> void:
+	if card == null or typeof(card) != TYPE_DICTIONARY:
+		return
 	var p: Dictionary = players[card["ownerId"]]
 	var from_arr: Array = p["back"] if card["slotType"] == "retaguarda" else p["front"]
 	var to_arr: Array = p["back"] if slot_type == "retaguarda" else p["front"]
@@ -483,7 +516,9 @@ func apoio_mult() -> int:
 func block_apoios(owner_id: String) -> void:
 	players[owner_id]["apoiosBlockedNextRound"] = true
 
-func force_rupture(card: Dictionary) -> void:
+func force_rupture(card) -> void:
+	if card == null or typeof(card) != TYPE_DICTIONARY:
+		return
 	card["forcedRupture"] = true
 
 # AP-26: o último morto volta — agora à reserva de reforços, não à mão.
@@ -555,6 +590,8 @@ func _instantiate(card_def: Dictionary, owner_id: String) -> Dictionary:
 		"pressaoMarcas": 0,
 		"turnosEmCampo": 0,
 		"enteredRound": current_round,
+		# Ordem de entrada em campo — determina a ordem de ataque na Bible v1.0
+		"entryOrder": 0,
 		"tookDamageThisRound": false,
 		"attackedThisRound": false,
 		"attackedLastRound": false,
@@ -613,6 +650,9 @@ func place_reinforcement(owner_id: String, index: int, slot_type: String, slot_i
 	var card := _instantiate(card_def, owner_id)
 	card["slotType"] = slot_type
 	card["slotIndex"] = slot_index
+	# Regista a ordem de entrada em campo (Bible v1.0: ordem de ataque)
+	_entry_order_counter += 1
+	card["entryOrder"] = _entry_order_counter
 	var arr: Array = p["front"] if slot_type == "frente" else p["back"]
 	arr[slot_index] = card
 
@@ -919,6 +959,9 @@ func destroy_card(card, killer = null) -> void:
 	p["lastDeadCard"] = card
 	_log("%s morreu." % card["nome"])
 
+	# Bible v1.0: quando uma unidade morre, o dono ganha +1 reforço (até máx 5)
+	gain_reinforcement(card["ownerId"], 1)
+
 	var def := abilities.get_unit_ability(str(card.get("habilidade_texto", "")))
 	if not def.is_empty() and str(def.get("trigger", "")) == "onDeath" and def.has("run"):
 		var result = def["run"].call(self, card, null, null)
@@ -991,6 +1034,9 @@ func _run_turn_start_triggers() -> void:
 		p["apoiosBlocked"] = p["apoiosBlockedNextRound"]
 		p["apoiosBlockedNextRound"] = false
 		p["donePlacing"] = false
+	# Repor ações táticas no início de cada turno (Bible v1.0: 3/turno)
+	tactical_actions["player"] = TACTICAL_ACTIONS_PER_TURN
+	tactical_actions["ai"] = TACTICAL_ACTIONS_PER_TURN
 
 func _resolve_combat() -> void:
 	phase = "combat"
@@ -998,26 +1044,34 @@ func _resolve_combat() -> void:
 	combat_counter += 1
 	recompute_statics()
 
-	var order := []
+	# Bible v1.0: ordem de ataque determinada por entryOrder (ordem de entrada em campo)
+	# Sacerdotes não atacam automaticamente (usam Ações Táticas).
+	var todos := []
 	for owner_id in ["player", "ai"]:
 		for c in allies(owner_id):
-			if c["papel"] == "ASSASSINO" and _can_act(c):
-				order.append({"kind": "assassino", "card": c})
-	for owner_id in ["player", "ai"]:
-		for c in allies(owner_id):
-			if c["papel"] == "ATIRADOR" and _can_act(c):
-				order.append({"kind": "atirador", "card": c})
-	for lane in range(FRONT_LANES):
-		for owner_id in ["player", "ai"]:
-			var c = players[owner_id]["front"][lane]
-			if c != null and _can_act(c) and (c["papel"] == "TANQUE" or c["papel"] == "GUERREIRO"):
-				order.append({"kind": "frente", "card": c})
+			var papel := str(c.get("papel", ""))
+			# Sacerdote/Suporte não participam no combate automático
+			if papel == "SACERDOTE" or papel == "SUPORTE":
+				continue
+			if not _can_act(c):
+				continue
+			todos.append(c)
 
-	for step in order:
-		var card: Dictionary = step["card"]
+	# Ordenar por entryOrder (quem entrou primeiro, ataca primeiro)
+	todos.sort_custom(func(a, b): return int(a.get("entryOrder", 0)) < int(b.get("entryOrder", 0)))
+
+	for card in todos:
 		if int(card["vidaAtual"]) <= 0:
 			continue
-		_resolve_attack(card, str(step["kind"]))
+		var papel := str(card.get("papel", ""))
+		var kind: String
+		match papel:
+			"ASSASSINO": kind = "assassino"
+			"ATIRADOR": kind = "atirador"
+			"LANCEIRO": kind = "lanceiro"
+			"MAGO": kind = "mago"
+			_: kind = "frente"
+		_resolve_attack(card, kind)
 
 	_end_of_round()
 
@@ -1045,29 +1099,58 @@ func _resolve_attack(attacker: Dictionary, kind: String) -> void:
 		return
 
 	if kind == "assassino":
-		# Ignora a frente inimiga, ataca a retaguarda directamente
+		# Assassino: ataca prioritariamente a Retaguarda na mesma coluna (Bible v1.0)
 		var opp_back: Array = players[opponent_of(attacker["ownerId"])]["back"]
+		var opp_front: Array = players[opponent_of(attacker["ownerId"])]["front"]
+		var lane := int(attacker["slotIndex"])
 		var target = null
-		for i in BACK_LANES:
-			var c = opp_back[i]
-			if c == null:
-				continue
-			if target == null or int(c["vidaAtual"]) < int(target["vidaAtual"]):
-				target = c
+		# Tenta a mesma coluna na retaguarda
+		if BACK_LANES.has(lane) and opp_back[lane] != null:
+			target = opp_back[lane]
+		else:
+			# Sem alvo na retaguarda da coluna, encontra qualquer unidade de retaguarda
+			for i in BACK_LANES:
+				if opp_back[i] != null:
+					if target == null or int(opp_back[i]["vidaAtual"]) < int(target["vidaAtual"]):
+						target = opp_back[i]
+			# Se não houver retaguarda, ataca a frente na mesma coluna (fallback)
+			if target == null:
+				target = opp_front[lane]
 		_strike(attacker, target, true)
 		return
 
 	if kind == "atirador":
+		# Atirador: pode atacar qualquer unidade (usa Ação Tática no turno real)
 		_strike(attacker, pick_lowest_vida_enemy_for_combat(attacker["ownerId"]), true)
 		return
 
-	# Frente: combate por coluna, progride para a retaguarda e depois a Torre
-	var opp: Dictionary = players[opponent_of(attacker["ownerId"])]
-	var lane: int = int(attacker["slotIndex"])
-	var target = opp["front"][lane]
-	if target == null and BACK_LANES.has(lane):
-		target = opp["back"][lane]
-	_strike(attacker, target, true)
+	if kind == "lanceiro":
+		# Lanceiro: ataca a Retaguarda na mesma coluna (Bible v1.0)
+		# Se não houver retaguarda e só houver Torre, o dano excedente atinge a Torre.
+		var opp: Dictionary = players[opponent_of(attacker["ownerId"])]
+		var lane := int(attacker["slotIndex"])
+		var target = null
+		if BACK_LANES.has(lane):
+			target = opp["back"][lane]
+		if target == null:
+			# Não há retaguarda na coluna: dano excedente vai para a Torre
+			_strike(attacker, null, true)
+		else:
+			_strike(attacker, target, true)
+		return
+
+	if kind == "mago":
+		# Mago: ignora linha de visão, escolhe o alvo mais perigoso (maior ataque)
+		_strike(attacker, pick_highest_ataque_enemy(attacker["ownerId"]), true)
+		return
+
+	# Frente (Guerreiro/Tanque): combate por coluna, progride para a retaguarda e depois a Torre
+	var opp_f: Dictionary = players[opponent_of(attacker["ownerId"])]
+	var flane: int = int(attacker["slotIndex"])
+	var ftarget = opp_f["front"][flane]
+	if ftarget == null and BACK_LANES.has(flane):
+		ftarget = opp_f["back"][flane]
+	_strike(attacker, ftarget, true)
 
 func _strike(attacker: Dictionary, target, siege_if_no_target: bool) -> void:
 	if target == null:

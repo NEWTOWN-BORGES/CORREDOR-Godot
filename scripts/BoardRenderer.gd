@@ -9,7 +9,7 @@ class_name BoardRenderer
 
 signal slot_clicked(owner_id: String, slot_type: String, lane: int)
 
-const TOWER_MAX := 30
+const TOWER_MAX := 100
 
 var portrait: bool = false
 
@@ -39,12 +39,23 @@ func _ready() -> void:
 # ---------------------------------------------------------------- construção
 
 func _build() -> void:
+	# Fundo escuro limpo e elegante em substituição da imagem antiga de fundo
+	var bg := Panel.new()
+	bg.name = "BoardBackground"
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var bg_style := StyleBoxFlat.new()
+	bg_style.bg_color = Palette.STONE_950
+	bg_style.border_color = Palette.STONE_700
+	bg_style.set_border_width_all(2)
+	bg_style.set_corner_radius_all(10)
+	bg.add_theme_stylebox_override("panel", bg_style)
+	add_child(bg)
+
 	_art = TextureRect.new()
 	_art.name = "BoardArt"
-	_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_art.stretch_mode = TextureRect.STRETCH_SCALE
 	_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_art.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_art.visible = false
 	add_child(_art)
 
 	_overlay = Control.new()
@@ -52,6 +63,17 @@ func _build() -> void:
 	_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(_overlay)
+
+	# Linha divisória central entre os dois lados do tabuleiro
+	var divider := ColorRect.new()
+	divider.name = "CenterDivider"
+	divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	divider.color = Color(Palette.EMBER_500, 0.3)
+	divider.anchor_left = 0.15
+	divider.anchor_right = 0.85
+	divider.anchor_top = 0.448
+	divider.anchor_bottom = 0.452
+	_overlay.add_child(divider)
 
 	for owner_id in ["ai", "player"]:
 		for slot_type in ["frente", "retaguarda"]:
@@ -178,15 +200,19 @@ func _deck_style(kind: String) -> StyleBoxFlat:
 
 func _slot_style(highlighted: bool) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
-	sb.set_corner_radius_all(4)
+	sb.set_corner_radius_all(6)
 	if highlighted:
-		# .slot.valid-target
-		sb.bg_color = Color(Palette.EMBER_GLOW, 0.18)
-		sb.border_color = Palette.EMBER_500
+		# Slot destacado para colocação de carta
+		sb.bg_color = Color(Palette.EMBER_GLOW, 0.25)
+		sb.border_color = Palette.EMBER_400
 		sb.set_border_width_all(2)
+		sb.shadow_color = Color(Palette.EMBER_500, 0.4)
+		sb.shadow_size = 4
 	else:
-		sb.bg_color = Color(0, 0, 0, 0)
-		sb.set_border_width_all(0)
+		# Slot normal em repouso - moldura escura elegante
+		sb.bg_color = Color(0.04, 0.05, 0.07, 0.35)
+		sb.border_color = Color(0.65, 0.55, 0.40, 0.30)
+		sb.set_border_width_all(1)
 	return sb
 
 func _build_tower(owner_id: String) -> void:
@@ -253,10 +279,11 @@ func _build_tower(owner_id: String) -> void:
 	_tower_labels[owner_id] = hp
 
 func _load_art() -> void:
-	var caminho := Cards.board_texture_path(_ruined, portrait)
-	var tex := Cards.texture_at(caminho)
-	if tex != null:
-		_art.texture = tex
+	# A imagem antiga de fundo foi removida para eliminar a confusão.
+	# O tabuleiro utiliza agora o fundo escuro moderno e profissional.
+	if _art != null:
+		_art.texture = null
+		_art.visible = false
 
 # ---------------------------------------------------------------- colocação
 
@@ -286,26 +313,19 @@ func _place_rank(owner_id: String, slot_type: String) -> void:
 	if rank == null:
 		return
 
-	var r := BoardGeometry.rank_rect(owner_id, slot_type, portrait)
-	rank.anchor_left = r.position.x
-	rank.anchor_top = r.position.y
-	rank.anchor_right = r.position.x + r.size.x
-	rank.anchor_bottom = r.position.y + r.size.y
-	rank.offset_left = 0.0
-	rank.offset_top = 0.0
-	rank.offset_right = 0.0
-	rank.offset_bottom = 0.0
+	# A faixa em si só agrupa; cada casa tem a sua posição absoluta (medida
+	# individualmente em paisagem, ou calculada pela fórmula em retrato).
+	rank.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
-	var largura := BoardGeometry.slot_width()
 	for lane in range(BoardGeometry.LANES):
 		var slot: Control = _slots.get(_key(owner_id, slot_type, lane))
 		if slot == null:
 			continue
-		var esquerda := BoardGeometry.slot_left(lane)
-		slot.anchor_left = esquerda
-		slot.anchor_right = esquerda + largura
-		slot.anchor_top = 0.0
-		slot.anchor_bottom = 1.0
+		var r := BoardGeometry.slot_rect(owner_id, slot_type, lane, portrait)
+		slot.anchor_left = r.position.x
+		slot.anchor_top = r.position.y
+		slot.anchor_right = r.position.x + r.size.x
+		slot.anchor_bottom = r.position.y + r.size.y
 		slot.offset_left = 0.0
 		slot.offset_top = 0.0
 		slot.offset_right = 0.0

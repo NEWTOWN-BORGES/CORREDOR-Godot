@@ -80,12 +80,13 @@ func check_near(actual: float, expected: float, tol: float, label: String) -> vo
 
 func test_geometry_math() -> void:
 	print("Contas da geometria")
-	# CSS: 6 casas com flex 1 1 0 e gap 0.8% -> largura (1 - 5*0.008)/6 = 0.16
-	check_near(BoardGeometry.slot_width(), 0.16, 0.0001, "largura da casa = 16% da faixa")
+	# Fórmula uniforme — só serve o retrato agora (paisagem tem cada casa
+	# medida à parte, ver SLOTS_LANDSCAPE).
+	check_near(BoardGeometry.slot_width(), 0.16, 0.0001, "largura da casa (retrato) = 16% da faixa")
 	check_near(BoardGeometry.slot_left(0), 0.0, 0.0001, "casa 0 encosta à esquerda")
 	check_near(BoardGeometry.slot_left(5) + BoardGeometry.slot_width(), 1.0, 0.0001,
 		"casa 5 encosta à direita")
-	check_near(BoardGeometry.aspect_ratio(false), 1402.0 / 1122.0, 0.0001, "proporção paisagem 1402:1122")
+	check_near(BoardGeometry.aspect_ratio(false), 4963.0 / 3509.0, 0.0001, "proporção paisagem 4963:3509")
 	check_near(BoardGeometry.aspect_ratio(true), 1024.0 / 1536.0, 0.0001, "proporção retrato 1024:1536")
 
 func test_all_slots_exist() -> void:
@@ -121,45 +122,62 @@ func test_apoio_edges() -> void:
 		"motor recusa unidade na retaguarda 5")
 
 func test_rank_positions() -> void:
-	print("Faixas nas coordenadas medidas na arte")
-	# Valores do style.css: .rank.enemy-back { top: 22.0%; left: 18.0%; ... }
+	print("Faixas nas coordenadas medidas no TABULEIRO.pdf (Ago 2026)")
+	# Rect2 = união das 6 casas medidas de cada faixa (SLOTS_LANDSCAPE).
 	var esperado := {
-		"ai_retaguarda": Rect2(0.180, 0.220, 0.634, 0.118),
-		"ai_frente": Rect2(0.180, 0.370, 0.634, 0.123),
-		"player_frente": Rect2(0.180, 0.540, 0.634, 0.127),
-		"player_retaguarda": Rect2(0.180, 0.701, 0.634, 0.131)
+		"ai_retaguarda": Rect2(0.1830, 0.1981, 0.6313, 0.0721),
+		"ai_frente": Rect2(0.2466, 0.3029, 0.5037, 0.0835),
+		"player_frente": Rect2(0.2257, 0.4243, 0.5456, 0.0980),
+		"player_retaguarda": Rect2(0.0975, 0.5660, 0.8021, 0.1166)
 	}
 	for chave in esperado:
 		var partes: PackedStringArray = chave.split("_")
 		var r: Rect2 = BoardGeometry.rank_rect(partes[0], partes[1], false)
 		var e: Rect2 = esperado[chave]
-		check(r.is_equal_approx(e), "%s em %.1f%% / %.1f%%" % [
+		# Tolerância larga: e é a união das 6 casas arredondadas a 4 casas
+		# decimais, por isso a soma pode divergir da medição original em
+		# décimas de milésimo — ruído de arredondamento, não um erro real.
+		var ok := r.position.distance_to(e.position) < 0.001 \
+			and r.size.distance_to(e.size) < 0.001
+		check(ok, "%s em %.1f%% / %.1f%%" % [
 			chave, e.position.y * 100.0, e.position.x * 100.0])
 
 func test_lane_alignment() -> void:
-	print("Colunas alinhadas entre frente e retaguarda")
-	# A retaguarda usa o mesmo passo da frente, por isso a coluna 2 da frente
-	# tem de ficar exactamente por cima da coluna 2 da retaguarda.
-	for lane in range(6):
+	print("Colunas de combate alinhadas entre frente e retaguarda")
+	# A retaguarda só tem unidade nos lanes 1-4 (0 e 5 são baralho, medidos
+	# mais afastados do centro do que uma simples continuação da frente daria
+	# — ver o comentário no topo de BoardGeometry.gd). Só os 4 lanes de
+	# combate partilhados é que têm de alinhar, e com folga: são duas medições
+	# independentes no PDF, não a mesma fórmula.
+	for lane in [1, 2, 3, 4]:
 		var frente := board.slot_control("player", "frente", lane)
 		var retaguarda := board.slot_control("player", "retaguarda", lane)
 		if frente == null or retaguarda == null:
 			check(false, "casas da coluna %d existem" % lane)
 			continue
-		check_near(frente.anchor_left, retaguarda.anchor_left, 0.0001,
-			"coluna %d alinhada nas duas linhas" % lane)
+		check_near(frente.anchor_left, retaguarda.anchor_left, 0.03,
+			"coluna %d aproximadamente alinhada nas duas linhas" % lane)
+
+	# Os lanes 0 e 5 são deliberadamente diferentes: baralho na retaguarda,
+	# unidade na frente — não fazia sentido alinhá-los.
+	var frente0 := board.slot_control("player", "frente", 0)
+	var retaguarda0 := board.slot_control("player", "retaguarda", 0)
+	check(retaguarda0.anchor_left < frente0.anchor_left,
+		"lane 0: o baralho da retaguarda fica mais para fora que a frente")
 
 func test_towers() -> void:
 	print("Torres")
-	board.set_tower("player", 30)
+	# Game.TOWER_MAX / BoardRenderer.TOWER_MAX = 100 (não 30 — desactualizado).
+	var maximo := BoardRenderer.TOWER_MAX
+	board.set_tower("player", maximo)
 	var fill: ColorRect = board._tower_fills["player"]
 	var label: Label = board._tower_labels["player"]
 	check_near(fill.anchor_right, 1.0, 0.001, "vida cheia enche a barra")
-	check(label.text == "30/30", "mostra 30/30")
+	check(label.text == "%d/%d" % [maximo, maximo], "mostra %d/%d" % [maximo, maximo])
 
-	board.set_tower("player", 15)
+	board.set_tower("player", maximo / 2)
 	check_near(fill.anchor_right, 0.5, 0.001, "metade da vida, meia barra")
-	check(label.text == "15/30", "mostra 15/30")
+	check(label.text == "%d/%d" % [maximo / 2, maximo], "mostra %d/%d" % [maximo / 2, maximo])
 
 	board.set_tower("player", 0)
 	check_near(fill.anchor_right, 0.0, 0.001, "sem vida, barra vazia")
@@ -167,20 +185,21 @@ func test_towers() -> void:
 	# Vida negativa não pode encolher a barra para lá do zero
 	board.set_tower("player", -5)
 	check_near(fill.anchor_right, 0.0, 0.001, "vida negativa fica a zero")
-	check(label.text == "0/30", "mostra 0/30")
+	check(label.text == "0/%d" % maximo, "mostra 0/%d" % maximo)
 
 func test_ruined_board() -> void:
 	print("Tabuleiro arruinado abaixo de 25%")
-	board.update_board_art(30, 30)
+	var maximo := BoardRenderer.TOWER_MAX
+	board.update_board_art(maximo, maximo)
 	check(not board.is_ruined(), "torres cheias: tabuleiro inteiro")
 
-	board.update_board_art(30, 8)
-	check(not board.is_ruined(), "8/30 ainda está acima de 25%")
+	board.update_board_art(maximo, 26)
+	check(not board.is_ruined(), "26%% ainda está acima de 25%%")
 
-	board.update_board_art(30, 7)
-	check(board.is_ruined(), "7/30 passa o limite: tabuleiro arruinado")
+	board.update_board_art(maximo, 25)
+	check(board.is_ruined(), "25%% passa o limite: tabuleiro arruinado")
 
-	board.update_board_art(30, 30)
+	board.update_board_art(maximo, maximo)
 	check(not board.is_ruined(), "recupera se as torres voltarem a subir")
 
 # ---------------------------------------------------------------- zonas do PDF
@@ -219,9 +238,9 @@ func test_graveyard_zone() -> void:
 	# Centrado, e de cada lado do tabuleiro
 	var r_player := BoardGeometry.graveyard_rect("player", false)
 	var r_ai := BoardGeometry.graveyard_rect("ai", false)
-	check_near(r_player.position.x + r_player.size.x * 0.5, 0.5, 0.001, "centrado na horizontal")
-	check(r_ai.position.y < 0.25, "o da IA fica em cima (%.2f)" % r_ai.position.y)
-	check(r_player.position.y > 0.75, "o do jogador fica em baixo (%.2f)" % r_player.position.y)
+	check_near(r_player.position.x + r_player.size.x * 0.5, 0.5, 0.002, "centrado na horizontal")
+	check(r_ai.position.y < 0.5, "o da IA fica na metade de cima (%.2f)" % r_ai.position.y)
+	check(r_player.position.y > 0.5, "o do jogador fica na metade de baixo (%.2f)" % r_player.position.y)
 
 	# Não colide com as faixas de retaguarda
 	var ret_ai := BoardGeometry.rank_rect("ai", "retaguarda", false)

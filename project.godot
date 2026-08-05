@@ -29,10 +29,7 @@ Sfx="*res://scripts/AudioManager.gd"
 
 window/size/viewport_width=1600
 window/size/viewport_height=900
-; Ecrã cheio, como nos jogos. F11 alterna, Esc sai para janela.
 window/size/mode=3
-; canvas_items + expand: a interface escala com o ecrã e o espaço a mais vai
-; para as margens, em vez de ficarem barras pretas.
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 

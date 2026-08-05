@@ -106,12 +106,25 @@ func texture_at(res_path: String) -> Texture2D:
 		_touch(res_path)
 		return _texture_cache[res_path]
 
-	if not ResourceLoader.exists(res_path):
-		stats_failures += 1
-		push_warning("CardLoader: textura não encontrada — %s" % res_path)
-		return null
+	# Tenta carregar directamente a textura de res_path
+	var tex: Texture2D = null
+	if ResourceLoader.exists(res_path):
+		tex = load(res_path) as Texture2D
 
-	var tex := load(res_path) as Texture2D
+	if tex == null:
+		# Fallback de carregamento directo caso ResourceLoader.exists dê falso negativo em .png
+		if FileAccess.file_exists(res_path):
+			tex = load(res_path) as Texture2D
+
+	if tex == null:
+		# Alguns dados de teste e as cartas táticas antigas referem arte que já
+		# não existe no projecto. Nunca chame load() num caminho inexistente: o
+		# Godot regista um erro e a UI fica sem imagem. Mostramos uma carta real
+		# de reserva enquanto os dados antigos forem actualizados.
+		var fallback_path: String = _fallback_texture_path(res_path)
+		if fallback_path != "" and ResourceLoader.exists(fallback_path):
+			tex = load(fallback_path) as Texture2D
+
 	if tex == null:
 		stats_failures += 1
 		push_warning("CardLoader: falhou a carregar — %s" % res_path)
@@ -122,6 +135,14 @@ func texture_at(res_path: String) -> Texture2D:
 	_usage_order.append(res_path)
 	_evict_if_needed()
 	return tex
+
+func _fallback_texture_path(res_path: String) -> String:
+	var file_name: String = res_path.get_file().to_lower()
+	if file_name.begins_with("reinos-01-"):
+		return "res://assets/cartas-3d/REI-GR-01.png"
+	if file_name.begins_with("tatico-"):
+		return "res://assets/apoios-3d/APO-NE-01.png"
+	return ""
 
 func _touch(res_path: String) -> void:
 	_usage_order.erase(res_path)

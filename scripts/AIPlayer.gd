@@ -39,7 +39,8 @@ func slot_order(is_front: bool) -> Array:
 	return [2, 3, 1, 4, 0, 5] if is_front else [2, 3, 1, 4]
 
 func find_open_slot(engine: Game, card_def: Dictionary) -> Dictionary:
-	var is_front: bool = Game.FRONT_ROLES.has(str(card_def.get("papel", "")))
+	var papel := str(card_def.get("papel", ""))
+	var is_front: bool = Game.FRONT_ROLES.has(papel)
 	var slot_type := "frente" if is_front else "retaguarda"
 	for i in slot_order(is_front):
 		if engine.can_place_unit(owner_id, card_def, slot_type, i):

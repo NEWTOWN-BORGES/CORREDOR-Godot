@@ -81,7 +81,7 @@ func unit(nome: String, papel: String, atk: int = 2, vida: int = 3) -> Dictionar
 func apoio(id: String, nome: String) -> Dictionary:
 	return {
 		"id": id, "nome": nome, "faccao_slug": "reinos", "isApoio": true,
-		"imagem": "assets/apoios-3d/ap-01-pocao-de-vigor.png"
+		"imagem": "assets/apoios-3d/APO-NE-01.png"
 	}
 
 # Põe a mão exactamente como o teste precisa

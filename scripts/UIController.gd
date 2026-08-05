@@ -156,15 +156,16 @@ func _setup_overlays() -> void:
 
 func _style_reinforcement_panel() -> void:
 	var moldura := StyleBoxFlat.new()
-	moldura.bg_color = Color(Palette.STONE_900, 0.72)
-	moldura.border_color = Palette.STONE_600
-	moldura.set_border_width_all(1)
+	moldura.bg_color = Color(Palette.STONE_900, 0.85)
+	moldura.border_color = Palette.EMBER_400
+	moldura.set_border_width_all(2)
 	moldura.set_corner_radius_all(10)
 	moldura.set_content_margin_all(10)
 	reinforcement_panel.add_theme_stylebox_override("panel", moldura)
 
+	reinforcement_title.text = "RESERVA MILITAR"
 	reinforcement_title.add_theme_color_override("font_color", Palette.EMBER_300)
-	reinforcement_count.add_theme_color_override("font_color", Palette.PARCHMENT_DIM)
+	reinforcement_count.add_theme_color_override("font_color", Palette.PARCHMENT)
 
 func _on_toggle_music() -> void:
 	Sfx.toggle_muted()
@@ -380,7 +381,7 @@ func _render_hand() -> void:
 
 func _make_hand_card(card_def: Dictionary, index: int) -> Control:
 	var altura := 158.0
-	var largura := altura * (750.0 / 1050.0)
+	var largura := altura * (69.0 / 94.0)
 
 	var vista := CardView.new()
 	vista.show_overlays = false
@@ -452,14 +453,20 @@ func _render_hud() -> void:
 	elif engine.phase == "combat":
 		turn_text = "Combate..."
 	elif engine.active_player == "player":
-		turn_text = "A tua vez"
+		if _selected_reinforcement >= 0:
+			turn_text = "Clica numa casa livre do tabuleiro para colocar a unidade!"
+		else:
+			turn_text = "A tua vez: Seleciona um Reforço (painel da esquerda) ou joga um Apoio da Mão"
 	else:
 		turn_text = "Vez do adversário"
 
-	hud_label.text = "CORREDOR — Turno %d/%d | %s\nTorres  tu %d  ·  adversário %d   |   Reforços %d/%d" % [
+	var acoes: int = int(engine.tactical_actions.get("player", 0))
+	hud_label.text = "CORREDOR — Turno %d/%d | %s\nTorres  tu %d/%d  ·  adv %d/%d   |   Reforços %d/%d   |   Ações Táticas %d/%d" % [
 		engine.current_round, Game.ROUND_LIMIT, turn_text,
-		engine.towers["player"], engine.towers["ai"],
-		engine.reinforcement_count("player"), Game.MAX_REFORCOS
+		engine.towers["player"], Game.TOWER_MAX,
+		engine.towers["ai"], Game.TOWER_MAX,
+		engine.reinforcement_count("player"), Game.MAX_REFORCOS,
+		acoes, Game.TACTICAL_ACTIONS_PER_TURN
 	]
 
 # ---------------------------------------------------------------- zoom
@@ -473,7 +480,7 @@ func _open_zoom(card_def: Dictionary, playable: bool, on_play: Callable) -> void
 
 	# Escala a carta a 70% da altura do ecrã, mantendo a proporção
 	var altura: float = max(240.0, get_viewport_rect().size.y * 0.7)
-	zoom_card.custom_minimum_size = Vector2(altura * (750.0 / 1050.0), altura)
+	zoom_card.custom_minimum_size = Vector2(altura * (69.0 / 94.0), altura)
 
 	zoom_actions.visible = true
 	zoom_play.visible = playable
@@ -493,7 +500,7 @@ func _open_zoom_readonly(card_def: Dictionary) -> void:
 	if tex != null:
 		zoom_card.texture = tex
 	var altura: float = max(240.0, get_viewport_rect().size.y * 0.7)
-	zoom_card.custom_minimum_size = Vector2(altura * (750.0 / 1050.0), altura)
+	zoom_card.custom_minimum_size = Vector2(altura * (69.0 / 94.0), altura)
 	zoom_actions.visible = false
 	zoom_overlay.visible = true
 

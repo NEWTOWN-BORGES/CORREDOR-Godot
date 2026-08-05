@@ -82,7 +82,7 @@ func unit(nome: String, papel: String, atk: int, vida: int, escudo: int = 0, cus
 func apoio(id: String, nome: String) -> Dictionary:
 	return {
 		"id": id, "nome": nome, "faccao_slug": "coro", "isApoio": true,
-		"imagem": "assets/apoios-3d/ap-01-pocao-de-vigor.png"
+		"imagem": "assets/apoios-3d/APO-NE-01.png"
 	}
 
 func place(owner_id: String, card_def: Dictionary, slot_type: String, lane: int) -> Dictionary:

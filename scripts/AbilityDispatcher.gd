@@ -910,12 +910,192 @@ func _setup_apoio_abilities() -> void:
 				engine.force_rupture(target)
 	})
 
+	_apoio("AP-28", {
+		"needsTarget": "ally",
+		"run": func(engine, _owner_id, target, _extra):
+			if target != null:
+				engine.add_shield(target, 3 * engine.apoio_mult())
+				engine.add_atk_mod(target, 1 * engine.apoio_mult())
+	})
+
+	_apoio("AP-29", {
+		"needsTarget": null,
+		"run": func(engine, owner_id, _target, _extra):
+			for a in engine.allies(owner_id):
+				engine.heal(a, 3 * engine.apoio_mult())
+				engine.add_shield(a, 1 * engine.apoio_mult())
+	})
+
+	_apoio("AP-30", {
+		"needsTarget": null,
+		"run": func(engine, owner_id, _target, _extra):
+			engine.heal_tower(owner_id, 4 * engine.apoio_mult())
+	})
+
+	_apoio("AP-31", {
+		"needsTarget": null,
+		"run": func(engine, owner_id, _target, _extra):
+			engine.grant_extra_unit_cap(owner_id, 2)
+	})
+
+	_apoio("AP-32", {
+		"needsTarget": null,
+		"run": func(engine, owner_id, _target, _extra):
+			for e in engine.enemies(owner_id):
+				engine.add_atk_mod(e, -1 * engine.apoio_mult())
+	})
+
+	_apoio("AP-33", {
+		"needsTarget": null,
+		"run": func(engine, owner_id, _target, _extra):
+			for a in engine.allies(owner_id):
+				engine.clear_negative_effects(a)
+				engine.add_shield(a, 3 * engine.apoio_mult())
+	})
+
+	_apoio("AP-34", {
+		"needsTarget": "ally",
+		"run": func(engine, _owner_id, target, _extra):
+			if target != null:
+				engine.force_rupture(target)
+				engine.add_atk_mod(target, 2 * engine.apoio_mult())
+	})
+
+	_apoio("AP-35", {
+		"needsTarget": "ally",
+		"run": func(engine, owner_id, target, _extra):
+			engine.set_apoio_double(owner_id)
+			if target != null:
+				engine.add_shield(target, 2)
+	})
+
+	_apoio("AP-36", {
+		"needsTarget": null,
+		"run": func(engine, owner_id, _target, _extra):
+			var t = engine.pick_highest_vida_enemy(owner_id)
+			if t != null:
+				engine.deal_damage(t, 4 * engine.apoio_mult(), null, {"trueDamage": true})
+	})
+
+	_apoio("AP-37", {
+		"needsTarget": null,
+		"run": func(engine, owner_id, _target, _extra):
+			for a in engine.allies(owner_id):
+				engine.add_shield(a, 3 * engine.apoio_mult())
+	})
+
+	_apoio("AP-38", {
+		"needsTarget": "ally",
+		"run": func(engine, _owner_id, target, _extra):
+			if target != null:
+				target["readyToAttack"] = true
+				engine.add_atk_mod(target, 2 * engine.apoio_mult())
+	})
+
+	_apoio("AP-39", {
+		"needsTarget": null,
+		"run": func(engine, owner_id, _target, _extra):
+			var t = engine.pick_lowest_vida_enemy(owner_id)
+			if t != null:
+				engine.destroy_card(t, null)
+	})
+
+	_apoio("AP-40", {
+		"needsTarget": null,
+		"run": func(engine, owner_id, _target, _extra):
+			for a in engine.allies(owner_id):
+				engine.perm_buff(a, 1, 1)
+	})
+
+	_apoio("AP-41", {
+		"needsTarget": null,
+		"run": func(engine, owner_id, _target, _extra):
+			for e in engine.enemies(owner_id):
+				e["pressureLocked"] = 1
+	})
+
+	_apoio("AP-42", {
+		"needsTarget": null,
+		"run": func(engine, owner_id, _target, _extra):
+			engine.heal_tower(owner_id, 5 * engine.apoio_mult())
+			var t = engine.pick_most_wounded_ally(owner_id)
+			if t != null:
+				engine.add_shield(t, 2 * engine.apoio_mult())
+	})
+
+	_apoio("AP-43", {
+		"needsTarget": null,
+		"run": func(engine, owner_id, _target, _extra):
+			engine.return_last_dead_to_hand(owner_id)
+	})
+
+	_apoio("AP-44", {
+		"needsTarget": "ally",
+		"run": func(engine, _owner_id, target, _extra):
+			if target != null:
+				engine.add_atk_mod(target, 3 * engine.apoio_mult())
+				engine.add_shield(target, 3 * engine.apoio_mult())
+	})
+
+	_apoio("AP-45", {
+		"needsTarget": null,
+		"run": func(engine, owner_id, _target, _extra):
+			for a in engine.allies(owner_id):
+				engine.heal(a, 4 * engine.apoio_mult())
+				engine.perm_buff(a, 2, 2)
+	})
+
 # ---------------------------------------------------------------------------
 # API
 # ---------------------------------------------------------------------------
 
 func get_unit_ability(ability_text: String) -> Dictionary:
-	return UNIT_ABILITIES.get(ability_text, {})
+	if UNIT_ABILITIES.has(ability_text):
+		return UNIT_ABILITIES[ability_text]
+	if ability_text == "" or ability_text == null:
+		return {}
+	
+	# Dynamic fallback matching for text patterns
+	if ability_text.contains("Ao entrar, ganha +1 de Ataque."):
+		return {
+			"trigger": "onEnter",
+			"run": func(engine, card, _x, _y):
+				engine.add_atk_mod(card, 1)
+		}
+	elif ability_text.contains("Ao entrar, ganha Escudo 2."):
+		return {
+			"trigger": "onEnter",
+			"run": func(engine, card, _x, _y):
+				engine.add_shield(card, 2)
+		}
+	elif ability_text.contains("No início de cada turno, cura 1"):
+		return {
+			"trigger": "turnStart",
+			"run": func(engine, card, _x, _y):
+				engine.heal(card, 1)
+		}
+	elif ability_text.contains("Ao entrar, dá +1/+1 a todas as tuas cartas."):
+		return {
+			"trigger": "onEnter",
+			"run": func(engine, card, _x, _y):
+				for a in engine.allies(card["ownerId"]):
+					engine.perm_buff(a, 1, 1)
+		}
+	elif ability_text.contains("Ao morrer, causa 2 de dano à carta inimiga no mesmo corredor."):
+		return {
+			"trigger": "onDeath",
+			"run": func(engine, card, _x, _y):
+				for e in engine.lane_enemies_of(card):
+					engine.deal_damage(e, 2, card)
+		}
+	elif ability_text.contains("Ao morrer, cura 2 ao teu Nexus."):
+		return {
+			"trigger": "onDeath",
+			"run": func(engine, card, _x, _y):
+				engine.heal_tower(card["ownerId"], 2)
+		}
+	
+	return {}
 
 func get_apoio_ability(apoio_id: String) -> Dictionary:
 	return APOIO_ABILITIES.get(apoio_id, {})

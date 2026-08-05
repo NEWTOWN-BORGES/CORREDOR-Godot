@@ -71,9 +71,9 @@ func all_cards() -> Array:
 
 func test_json_loaded() -> void:
 	print("cartas.json")
-	check_eq((loader.unidades as Array).size(), 100, "100 unidades")
-	check_eq((loader.apoios as Array).size(), 27, "27 apoios")
-	check_eq((loader.taticos as Array).size(), 300, "300 táticos")
+	check_eq((loader.unidades as Array).size(), 225, "225 unidades")
+	check_eq((loader.apoios as Array).size(), 45, "45 apoios")
+	check_eq((loader.taticos as Array).size(), 0, "táticos removidos do jogo")
 
 func test_index_by_id() -> void:
 	print("Índice por id")
@@ -95,12 +95,6 @@ func test_path_resolution() -> void:
 	var p2: String = loader.resolve_image_path(apoio)
 	check(p2.begins_with("res://assets/apoios-3d/"), "apoio → res://assets/apoios-3d/…")
 
-	# táticos trazem só o nome do ficheiro
-	var tatico: Dictionary = loader.taticos[0]
-	check(not str(tatico.get("imagem", "")).contains("/"), "tático no JSON não tem pasta")
-	var p3: String = loader.resolve_image_path(tatico)
-	check(p3.begins_with("res://assets/taticos-3d/"), "tático → res://assets/taticos-3d/…")
-
 	check_eq(loader.resolve_image_path({}), "", "carta sem imagem devolve vazio")
 
 func test_every_card_texture_exists() -> void:
@@ -111,7 +105,7 @@ func test_every_card_texture_exists() -> void:
 		if path == "" or not ResourceLoader.exists(path):
 			em_falta.append("%s (%s) → %s" % [c.get("id", "?"), c.get("nome", "?"), path])
 
-	check_eq(em_falta.size(), 0, "427 cartas com arte")
+	check_eq(em_falta.size(), 0, "270 cartas com arte")
 	for linha in em_falta.slice(0, 10):
 		print("        em falta: %s" % linha)
 

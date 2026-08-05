@@ -17,7 +17,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 config/name="CORREDOR - TCG"
 config/description="1v1 Tower Siege Card Game - Godot Version"
 run/main_scene="res://scenes/MainMenu.tscn"
-config/features=PackedStringArray("4.7", "Mobile")
+config/features=PackedStringArray("4.7", "Forward Plus")
 
 [autoload]
 
@@ -39,4 +39,8 @@ common/physics_ticks_per_second=120
 
 [rendering]
 
-renderer/rendering_method="mobile"
+; O jogo é para PC, por agora. Forward+ é o renderizador de secretária do
+; Godot: melhor qualidade e sem os limites do Mobile (que existe para GPUs
+; de telemóvel). Se um dia houver versão para telemóvel, troca-se aqui para
+; "mobile" e volta-se a pôr "Mobile" em config/features.
+renderer/rendering_method="forward_plus"

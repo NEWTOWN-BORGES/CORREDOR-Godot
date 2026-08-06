@@ -86,7 +86,7 @@ func test_geometry_math() -> void:
 	check_near(BoardGeometry.slot_left(0), 0.0, 0.0001, "casa 0 encosta à esquerda")
 	check_near(BoardGeometry.slot_left(5) + BoardGeometry.slot_width(), 1.0, 0.0001,
 		"casa 5 encosta à direita")
-	check_near(BoardGeometry.aspect_ratio(false), 4963.0 / 3509.0, 0.0001, "proporção paisagem 4963:3509")
+	check_near(BoardGeometry.aspect_ratio(false), 4.0 / 3.0, 0.0001, "proporção paisagem 4:3")
 	check_near(BoardGeometry.aspect_ratio(true), 1024.0 / 1536.0, 0.0001, "proporção retrato 1024:1536")
 
 func test_all_slots_exist() -> void:
@@ -159,11 +159,12 @@ func test_lane_alignment() -> void:
 			"coluna %d aproximadamente alinhada nas duas linhas" % lane)
 
 	# Os lanes 0 e 5 são deliberadamente diferentes: baralho na retaguarda,
-	# unidade na frente — não fazia sentido alinhá-los.
+	# unidade na frente — o spec do tabuleiro põe-nos em posições próprias,
+	# não fazia sentido alinhá-los nem assumir de que lado cada um cai.
 	var frente0 := board.slot_control("player", "frente", 0)
 	var retaguarda0 := board.slot_control("player", "retaguarda", 0)
-	check(retaguarda0.anchor_left < frente0.anchor_left,
-		"lane 0: o baralho da retaguarda fica mais para fora que a frente")
+	check(frente0.anchor_left != retaguarda0.anchor_left,
+		"lane 0: o baralho da retaguarda não cai em cima da unidade da frente")
 
 func test_towers() -> void:
 	print("Torres")

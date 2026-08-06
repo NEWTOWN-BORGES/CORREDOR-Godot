@@ -3,21 +3,20 @@ class_name BoardGeometry
 
 # Geometria do tabuleiro.
 #
-# Paisagem: medida directamente no TABULEIRO.pdf (calibração de Agosto 2026 —
-# 26 casas com centro e cantos, imagem de referência 4963×3509). A retaguarda
-# NÃO tem a mesma largura da frente: os dois baralhos nas pontas ficam mais
-# afastados do centro do que uma simples continuação das 6 colunas da frente
-# daria — por isso cada casa tem o seu próprio Rect2 medido, em vez de uma
-# fórmula única de "faixa + passo uniforme". Os 4 lanes de combate (1-4) da
-# retaguarda alinham com os 4 lanes centrais da frente; os lanes 0 e 5 da
-# frente (combate) não têm equivalente na retaguarda (lá são baralho).
+# Paisagem: as 24 casas de combate/baralho já não vivem aqui — vêm de
+# BoardSpec (resources/tabuleiro_spec.json, LORE_Tabuleiro_spec: homografia
+# medida sobre TABULEIRO.pdf/cards-Layout2.pdf). Este ficheiro guarda só o
+# que esse spec não cobre: a proporção do tabuleiro (secção 7 do documento —
+# "o fundo é uma pintura sem moldura, em 4:3"), o cemitério e as Torres.
+# SLOTS_LANDSCAPE abaixo fica só para o caso do BoardSpec falhar a carregar
+# (ver BoardRenderer._has_spec).
 #
-# Retrato: ainda não foi medido de novo — mantém a fórmula antiga (faixa
-# única + 6 lanes uniformes) até haver dados equivalentes aos da paisagem.
+# Retrato: ainda não foi medido — mantém a fórmula antiga (faixa única +
+# 6 lanes uniformes) até haver dados equivalentes.
 #
 # Rect2(x, y, largura, altura), tudo em fracções do tabuleiro.
 
-const ART_LANDSCAPE := Vector2(4963, 3509)
+const ART_LANDSCAPE := Vector2(4, 3)
 const ART_PORTRAIT := Vector2(1024, 1536)
 
 # Cada casa da paisagem, na ordem dos lanes (0=esquerda .. 5=direita), medida

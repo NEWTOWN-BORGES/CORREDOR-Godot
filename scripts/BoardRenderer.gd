@@ -1,8 +1,21 @@
 extends Control
 class_name BoardRenderer
 
-# Tabuleiro — 4 faixas de 6 casas e as duas Torres, colocadas sobre a arte
-# nas coordenadas medidas em BoardGeometry.
+# Tabuleiro — 4 faixas de 6 casas, as duas Torres e as 16 casas de mão
+# visível (8 por lado), colocadas nas coordenadas de LORE_Tabuleiro_spec
+# (resources/tabuleiro_spec.json) — homografia medida sobre os desenhos
+# AutoCAD (cards-Layout2.pdf a planta, TABULEIRO.pdf o tabuleiro inclinado).
+#
+# As casas ficam rectangulares (a caixa envolvente do quadrilátero
+# projectado) — o CardView e as animações continuam iguais, só a posição e
+# o tamanho de cada casa é que vêm da homografia, não de uma fórmula
+# uniforme. O aviso do documento sobre nunca esticar a textura para a caixa
+# envolvente aplica-se ao desenho da CARTA dentro da casa (Fase futura,
+# quad 3D ou shader); aqui o que se corrige é onde cada casa fica e que
+# tamanho tem.
+#
+# Retrato não tem medição própria no spec novo — mantém a fórmula antiga de
+# BoardGeometry.
 #
 # Só trata de desenhar e de reportar cliques. Quem decide o que é jogada
 # válida é o Game; este nó limita-se a perguntar.
@@ -21,9 +34,14 @@ var _tower_labels: Dictionary = {}
 var _tower_bars: Dictionary = {}
 var _graveyards: Dictionary = {}
 
+# "player_3" -> Control da casa de mão visível (0..7)
+var _hand_slots: Dictionary = {}
+
 var _art: TextureRect = null
 var _overlay: Control = null
 var _ruined: bool = false
+var _spec = null
+var _has_spec: bool = false
 
 # Posto a 0 pelos testes, para as barras irem directas ao valor final e as
 # casas não ficarem com um pulsar infinito a correr.
@@ -32,9 +50,24 @@ var _tower_tweens: Dictionary = {}
 var _low_tweens: Dictionary = {}
 
 func _ready() -> void:
+	_spec = load("res://scripts/BoardSpec.gd").new()
+	_has_spec = _spec.load_spec()
 	_build()
 	resized.connect(_relayout)
 	_relayout()
+
+# "player"/"ai" -> "jogador"/"adversario" (nomes das casas no spec).
+static func _lado(owner_id: String) -> String:
+	return "jogador" if owner_id == "player" else "adversario"
+
+# "frente"/"retaguarda" -> Linha 1 / Linha 2 do spec.
+static func _linha_do_tipo(slot_type: String) -> int:
+	return 1 if slot_type == "frente" else 2
+
+# "apoio" (nome do baralho no motor) -> "tatico" (nome da casa no spec) —
+# o baralho de Apoios+Táticas é a mesma pilha, só o rótulo mudou no desenho.
+static func _tipo_baralho_spec(kind: String) -> String:
+	return "tatico" if kind == "apoio" else kind
 
 # ---------------------------------------------------------------- construção
 
@@ -80,8 +113,29 @@ func _build() -> void:
 			_build_rank(owner_id, slot_type)
 		_build_tower(owner_id)
 		_build_graveyard(owner_id)
+		_build_hand_slots(owner_id)
 
 	_load_art()
+
+# As 8 casas de mão visível de um lado, directamente no tabuleiro — só
+# existem com posição própria em paisagem (o spec novo não cobre retrato).
+func _build_hand_slots(owner_id: String) -> void:
+	for indice in range(8):
+		var slot := Panel.new()
+		slot.name = "Hand_%d" % indice
+		slot.mouse_filter = Control.MOUSE_FILTER_STOP
+		slot.set_meta("owner_id", owner_id)
+		slot.set_meta("hand_index", indice)
+		slot.add_theme_stylebox_override("panel", _slot_style(false))
+
+		var holder := Control.new()
+		holder.name = "CardHolder"
+		holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		holder.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		slot.add_child(holder)
+
+		_overlay.add_child(slot)
+		_hand_slots["%s_%d" % [owner_id, indice]] = slot
 
 # Cemitério ao centro, entre a barra da Torre e a linha de retaguarda —
 # o "baralho das cartas que morrem" do TABULEIRO.pdf.
@@ -293,6 +347,7 @@ func _relayout() -> void:
 			_place_rank(owner_id, slot_type)
 		_place_tower(owner_id)
 		_place_graveyard(owner_id)
+		_place_hand_slots(owner_id)
 
 func _place_graveyard(owner_id: String) -> void:
 	var zona: Control = _graveyards.get(owner_id)
@@ -321,11 +376,72 @@ func _place_rank(owner_id: String, slot_type: String) -> void:
 		var slot: Control = _slots.get(_key(owner_id, slot_type, lane))
 		if slot == null:
 			continue
-		var r := BoardGeometry.slot_rect(owner_id, slot_type, lane, portrait)
+		var r: Rect2
+		if not portrait and _has_spec:
+			r = _spec_combat_rect(owner_id, slot_type, lane)
+		else:
+			r = BoardGeometry.slot_rect(owner_id, slot_type, lane, portrait)
 		slot.anchor_left = r.position.x
 		slot.anchor_top = r.position.y
 		slot.anchor_right = r.position.x + r.size.x
 		slot.anchor_bottom = r.position.y + r.size.y
+		slot.offset_left = 0.0
+		slot.offset_top = 0.0
+		slot.offset_right = 0.0
+		slot.offset_bottom = 0.0
+
+# Caixa envolvente (fracção do tabuleiro) da casa de combate/baralho medida
+# no spec novo. Lanes 0 e 5 da retaguarda são os dois baralhos; os restantes
+# (e todos os da frente) são casas de campo, colunas 1..6 ou 1..4.
+func _spec_combat_rect(owner_id: String, slot_type: String, lane: int) -> Rect2:
+	var lado := _lado(owner_id)
+	var casa: Dictionary
+	if BoardGeometry.is_deck_slot(slot_type, lane):
+		var kind := BoardGeometry.deck_kind(owner_id, lane)
+		casa = _spec.casa_baralho(_tipo_baralho_spec(kind), lado)
+	else:
+		var linha := _linha_do_tipo(slot_type)
+		# Na retaguarda os lanes 1-4 são as colunas 1-4; na frente os lanes
+		# 0-5 são as colunas 1-6 (sem baralho a meio).
+		var coluna: int = lane + 1 if slot_type == "frente" else lane
+		casa = _spec.casa_campo(lado, linha, coluna)
+	return _bbox(casa)
+
+# Caixa alinhada aos eixos que envolve os 4 cantos projectados de uma casa.
+func _bbox(casa: Dictionary) -> Rect2:
+	var pts: Array = casa.get("normal_ecra", [])
+	if pts.is_empty():
+		return Rect2()
+	var min_x: float = pts[0][0]
+	var max_x: float = pts[0][0]
+	var min_y: float = pts[0][1]
+	var max_y: float = pts[0][1]
+	for p in pts:
+		min_x = min(min_x, float(p[0]))
+		max_x = max(max_x, float(p[0]))
+		min_y = min(min_y, float(p[1]))
+		max_y = max(max_y, float(p[1]))
+	return Rect2(min_x, min_y, max_x - min_x, max_y - min_y)
+
+func _place_hand_slots(owner_id: String) -> void:
+	var lado := _lado(owner_id)
+	for indice in range(8):
+		var slot: Control = _hand_slots.get("%s_%d" % [owner_id, indice])
+		if slot == null:
+			continue
+		if not portrait and _has_spec:
+			var casa: Dictionary = _spec.casa_mao(lado, indice + 1)
+			var r := _bbox(casa)
+			slot.visible = not casa.is_empty()
+			slot.anchor_left = r.position.x
+			slot.anchor_top = r.position.y
+			slot.anchor_right = r.position.x + r.size.x
+			slot.anchor_bottom = r.position.y + r.size.y
+		else:
+			# Sem medição de retrato para a mão-no-tabuleiro ainda — fica
+			# escondida; a mão continua a aparecer na barra da UIController.
+			slot.visible = false
+			continue
 		slot.offset_left = 0.0
 		slot.offset_top = 0.0
 		slot.offset_right = 0.0
@@ -360,6 +476,16 @@ func slot_control(owner_id: String, slot_type: String, lane: int) -> Control:
 
 func card_holder(owner_id: String, slot_type: String, lane: int) -> Control:
 	var slot := slot_control(owner_id, slot_type, lane)
+	return slot.get_node("CardHolder") if slot != null else null
+
+# As 8 casas de mão visível de um lado (0..7), directamente no tabuleiro —
+# só têm posição própria em paisagem; a UIController continua a mostrar a
+# mão na barra até isto ficar ligado à jogada de cartas.
+func hand_slot_control(owner_id: String, index: int) -> Control:
+	return _hand_slots.get("%s_%d" % [owner_id, index])
+
+func hand_card_holder(owner_id: String, index: int) -> Control:
+	var slot := hand_slot_control(owner_id, index)
 	return slot.get_node("CardHolder") if slot != null else null
 
 # --- Zonas do TABULEIRO.pdf --------------------------------------------

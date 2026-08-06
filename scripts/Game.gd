@@ -33,9 +33,11 @@ const MAX_REFORCOS := 5
 const REFORCO_POR_TURNO := 1
 const REFORCOS_INICIAIS := 3
 
-# A mão é uma só: Apoios. Máximo 4 — a facção com menos Apoios (Despertos) só
-# tem 4 no total; um tecto maior nunca seria alcançável para essa facção.
-const MAO_MAX := 4
+# A mão é uma só: Apoios + Táticas (Equipamento/Magia/Consumível). Máximo 8 —
+# bate certo com as 8 casas de mão visíveis no tabuleiro (LORE_Tabuleiro_spec).
+# Com as Táticas de volta, todas as facções têm pelo menos 36 cartas de mão,
+# muito acima do tecto.
+const MAO_MAX := 8
 
 const FAMILY_A := ["ORDEM", "PUREZA"]
 const FAMILY_B := ["SELVA", "MAGIA"]

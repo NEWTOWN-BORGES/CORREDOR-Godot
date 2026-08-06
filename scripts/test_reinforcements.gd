@@ -5,7 +5,7 @@ extends Node
 #   godot --headless --path . res://scenes/TestReinforcements.tscn
 #
 # O Baralho Militar está oculto e larga 1 reforço por turno, até 3 guardados.
-# A mão é uma só: Apoios (as Táticas foram removidas do jogo).
+# A mão é uma só: Apoios + Táticas.
 
 var _passed := 0
 var _failed := 0
@@ -142,9 +142,7 @@ func test_decks_are_split() -> void:
 		elif str(c.get("tipo_tatico", "")) != "":
 			taticas += 1
 	check(apoios > 0, "mão tem Apoios (%d)" % apoios)
-	# As cartas Táticas foram removidas do jogo (sem arte nova) — a mão é só
-	# de Apoios agora.
-	check_eq(taticas, 0, "não há Táticas na mão (removidas do jogo)")
+	check(taticas > 0, "mão tem Táticas (%d)" % taticas)
 	check_eq(apoios + taticas, (baralho["mao"] as Array).size(), "e mais nada")
 
 func test_pool_caps_at_three() -> void:

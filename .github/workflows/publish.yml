@@ -1,0 +1,38 @@
+# Publica as APKs de teste numa Release (ficheiros até 2 GB cada, sem o limite de 100 MB
+# do Git). As APKs chegam a este ramo divididas em partes (parts/<apk>.partNN); aqui são
+# juntadas e enviadas para a Release "apk", com links de download fixos:
+#   https://github.com/<dono>/<repo>/releases/download/apk/<nome>.apk
+name: Publicar APK
+on:
+  push:
+    branches: [charge-arena-apk]
+  workflow_dispatch:
+permissions:
+  contents: write
+# One publication at a time: two runs replacing the same files at once collide.
+concurrency:
+  group: publicar-charge-arena-apk
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Juntar as partes
+        run: |
+          mkdir out
+          for base in $(ls parts | sed 's/\.part[0-9]*$//' | sort -u); do
+            cat $(ls parts/"$base".part* | sort) > out/"$base"
+          done
+          ls -la out
+          cd out && sha256sum $(ls *.apk *.aab *.zip 2>/dev/null) | tee SHA256SUMS.txt
+      - name: Publicar na Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=charge-arena-apk
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            gh release create "$TAG" --title "Charge Arena LAB (APK de teste)" --notes-file README.md --prerelease --target "$GITHUB_SHA"
+          fi
+          gh release edit "$TAG" --notes-file README.md
+          gh release upload "$TAG" $(ls out/*.apk out/*.aab out/*.zip 2>/dev/null) out/SHA256SUMS.txt --clobber
